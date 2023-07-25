@@ -11,7 +11,7 @@
   "scripts": {
     "test": "jest",
     "test:watch": "jest --watch",
-    "doc": "documentation readme src/index.ts --section=API",
+    "doc": "typedoc src/index.ts",
     "lint": "ts-standard --fix .",
     "build": "tsc -p tsconfig.json",
     "prepublish": "npm run build"
@@ -37,7 +37,6 @@
     "@types/node": "^18.7.4",
     "@typescript-eslint/eslint-plugin": "^5.52.0",
     "@typescript-eslint/parser": "^5.52.0",
-    "documentation": "^13.2.5",
     "eslint": "^8.34.0",
     "jest": "^26.6.3",
     "ts-standard": "^12.0.2",
@@ -48,6 +47,7 @@
     "@babbage/tokenator": "^0.1.2",
     "authrite-js": "^0.3.0",
     "babbage-bsv": "^0.1.1",
-    "pushdrop": "^0.1.21"
+    "pushdrop": "^0.1.21",
+    "typedoc": "^0.24.8"
   }
 }

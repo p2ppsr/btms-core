@@ -3,6 +3,10 @@ import { createAction, getTransactionOutputs, getPublicKey, submitDirectTransact
 import { Authrite } from 'authrite-js'
 import Tokenator from '@babbage/tokenator'
 
+/**
+ * The BTMS class provides an interface for managing and transacting assets using the Babbage SDK.
+ * @class
+ */
 export class BTMS {
   confederacyHost: string
   peerServHost: string
@@ -12,6 +16,18 @@ export class BTMS {
   basket: string
   topic: string
   satoshis: number
+
+  /**
+   * BTMS constructor.
+   * @constructor
+   * @param {string} confederacyHost - The confederacy host URL.
+   * @param {string} peerServHost - The peer service host URL.
+   * @param {string} messageBox - The message box ID.
+   * @param {string} protocolID - The protocol ID.
+   * @param {string} basket - The asset basket ID.
+   * @param {string} topic - The topic associated with the asset.
+   * @param {number} satoshis - The number of satoshis involved in transactions.
+   */
   constructor (
     confederacyHost = 'https://confederacy.babbage.systems',
     peerServHost = 'https://peerserv.babbage.systems',
@@ -38,6 +54,15 @@ export class BTMS {
     throw new Error('Not Implemented')
   }
 
+  /**
+   * Send tokens to a recipient.
+   * @async
+   * @param {string} assetId - The ID of the asset to be sent.
+   * @param {string} recipient - The recipient's public key.
+   * @param {number} sendAmount - The amount of the asset to be sent.
+   * @returns {Promise<any>} Returns a promise that resolves to a transaction action object.
+   * @throws {Error} Throws an error if the sender does not have enough tokens.
+   */
   async send(assetId: string, recipient: string, sendAmount: number): Promise<any> {
     const myTokens = await this.getTokens(assetId, true)
     const myBalance = await this.getBalance(assetId, myTokens)
@@ -178,6 +203,12 @@ export class BTMS {
     return action
   }
 
+  /**
+   * List incoming payments for a given asset.
+   * @async
+   * @param {string} assetId - The ID of the asset.
+   * @returns {Promise<any[]>} Returns a promise that resolves to an array of payment objects.
+   */
   async listIncomingPayments (assetId: string): Promise<any[]> {
     const myIncomingMessages = await this.tokenator.listMessages({
       messageBox: this.messageBox
@@ -217,6 +248,13 @@ export class BTMS {
     throw new Error('Not Implemented')
   }
 
+   /**
+   * Get all tokens for a given asset.
+   * @async
+   * @param {string} assetId - The ID of the asset.
+   * @param {boolean} includeEnvelope - Include the envelope in the result.
+   * @returns {Promise<any[]>} Returns a promise that resolves to an array of token objects.
+   */
   async getTokens(assetId: string, includeEnvelope: boolean = true) {
     return await getTransactionOutputs({
       basket: this.basket,
@@ -225,11 +263,19 @@ export class BTMS {
     })
   }
 
+   /**
+   * Get the balance of a given asset.
+   * @async
+   * @param {string} assetId - The ID of the asset.
+   * @param {any[]} myTokens - (Optional) An array of token objects owned by the caller.
+   * @returns {Promise<number>} Returns a promise that resolves to the balance.
+   */
   async getBalance(assetId: string, myTokens?: any[]): Promise<number> {
     if (!Array.isArray(myTokens)) {
       myTokens = await this.getTokens(assetId, false)
     }
     let balance = 0
+    if (myTokens === undefined) myTokens = [] // In my estimation this is completely unnecessary TypeScript bullshit. Please tell Ty how to make this go away.
     for (const x of myTokens) {
       const t = pushdrop.decode({
         script: x.outputScript,
