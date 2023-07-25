@@ -3,6 +3,22 @@ import { createAction, getTransactionOutputs, getPublicKey, submitDirectTransact
 import { Authrite } from 'authrite-js'
 import Tokenator from '@babbage/tokenator'
 
+type Token {
+      txid: string,
+      vout: number,
+      amount: number,
+      envelope: any,
+      outputScript: string
+    }
+
+type Payment {
+          txid: string,
+          amount: number,
+          token: Token,
+          sender: string,
+          messageId: number
+}
+
 /**
  * The BTMS class provides an interface for managing and transacting assets using the Babbage SDK.
  * @class
@@ -16,6 +32,7 @@ export class BTMS {
   basket: string
   topic: string
   satoshis: number
+  authrite: any
 
   /**
    * BTMS constructor.
@@ -47,6 +64,7 @@ export class BTMS {
     this.tokenator = new Tokenator({
       peerServHost
     })
+    this.authrite = new Authrite()
   }
 
   async listAssets (): Promise<any[]> {
@@ -238,9 +256,55 @@ export class BTMS {
     return payments
   }
 
-  async acceptIncomingPayment (assetId: string, txid: string): Promise<boolean> {
-    // TODO: implement this method
-    throw new Error('Not Implemented')
+  async acceptIncomingPayment (assetId: string, payment: any): Promise<boolean> {
+    // Verify the token is owned by the user
+      const decodedToken = pushdrop.decode({
+        script: payment.outputScript,
+        fieldFormat: 'utf8'
+      })
+
+      const myKey = await getPublicKey({
+        protocolID: this.protocolID,
+        keyID: '1',
+        counterparty: payment.sender,
+        forSelf: true
+      })
+
+      if (myKey !== decodedToken.lockingPublicKey) {
+        console.error('Received token not belonging to me!')
+        return false
+      }
+      
+      console.log('This token belongs to me!')
+
+      // Verify the token is on the overlay
+      const verified = await this.findFromOverlay(payment)
+      if (verified.length < 1) {
+        console.error('Token is for me but not on the overlay!')
+        return false
+      }
+      
+      console.log('Token is on the overlay!')
+
+      // Submit transaction
+      await submitDirectTransaction({
+        senderIdentityKey: payment.sender,
+        note: 'Receive token',
+        amount: this.satoshis,
+        transaction: {
+          ...payment.envelope,
+          outputs: [{
+            vout: 0,
+            basket: assetId,
+            satoshis: this.satoshis,
+            customInstructions: JSON.stringify({
+              sender: payment.sender
+            })
+          }]
+        }
+      })
+
+      return true
   }
 
   async refundIncomingTransaction (assetId: string, txid: string): Promise<boolean> {
@@ -299,5 +363,23 @@ export class BTMS {
   async verifyOwnership (assetId: string, amount: number, prover: string, proof: any): Promise<boolean> {
     // TODO: implement this method
     throw new Error('Not Implemented')
+  }
+
+  private async findFromOverlay(token: { txid: string, vout: number }): Promise<any> {
+    const result = await this.authrite.request(`${this.confederacyHost}/lookup`, {
+      method: 'post',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        provider: assetId,
+        query: {
+          txid: token.txid,
+          vout: token.vout
+        }
+      })
+    })
+
+    return await result.json()
   }
 }
