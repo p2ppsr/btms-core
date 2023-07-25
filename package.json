@@ -1,0 +1,53 @@
+{
+  "name": "btms-core",
+  "version": "0.1.0",
+  "description": "Tools for creating and managing UTXO-based tokens",
+  "main": "./out/src/index.js",
+  "types": "./out/src/index.d.ts",
+  "files": [
+    "out",
+    "src"
+  ],
+  "scripts": {
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "doc": "documentation readme src/index.ts --section=API",
+    "lint": "ts-standard --fix .",
+    "build": "tsc -p tsconfig.json",
+    "prepublish": "npm run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/p2ppsr/btms-core.git"
+  },
+  "keywords": [
+    "Bitcoin",
+    "BSV",
+    "UTXO",
+    "token"
+  ],
+  "author": "Peer-to-peer Privacy Systems Research LLC",
+  "license": "Open BSV License",
+  "bugs": {
+    "url": "https://github.com/p2ppsr/btms-core/issues"
+  },
+  "homepage": "https://github.com/p2ppsr/btms-core#readme",
+  "devDependencies": {
+    "@types/bn.js": "^5.1.1",
+    "@types/node": "^18.7.4",
+    "@typescript-eslint/eslint-plugin": "^5.52.0",
+    "@typescript-eslint/parser": "^5.52.0",
+    "documentation": "^13.2.5",
+    "eslint": "^8.34.0",
+    "jest": "^26.6.3",
+    "ts-standard": "^12.0.2",
+    "typescript": "^4.9.5"
+  },
+  "dependencies": {
+    "@babbage/sdk": "^0.4.25",
+    "@babbage/tokenator": "^0.1.2",
+    "authrite-js": "^0.3.0",
+    "babbage-bsv": "^0.1.1",
+    "pushdrop": "^0.1.21"
+  }
+}
