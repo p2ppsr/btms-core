@@ -81,6 +81,51 @@ export class BTMS {
         assets[assetId].balance += Number(decoded.fields[1])
       }
     }
+
+    // Now, we need to add in any incoming assets that we may have.
+    const myIncomingMessages = await this.tokenator.listMessages({
+      messageBox: this.messageBox
+    })
+    for (const message of myIncomingMessages) {
+      let parsedBody, token
+      try {
+        parsedBody = JSON.parse(JSON.parse(message.body))
+        token = parsedBody.token
+        const decodedToken = pushdrop.decode({
+          script: token.outputScript,
+          fieldFormat: 'utf8'
+        })
+        let decodedAssetId = decodedToken.fields[0]
+        if (decodedAssetId === 'ISSUE') {
+          decodedAssetId = `${token.txid}.${token.vout}`
+        }
+        const amount = Number(decodedToken.fields[1])
+        if (assets[decodedAssetId]) {
+          assets[decodedAssetId].incoming = true
+          if (!assets[decodedAssetId].incomingAmount) {
+            assets[decodedAssetId].incomingAmount = amount
+          } else {
+            assets[decodedAssetId].incomingAmount += amount
+          }
+        } else {
+          let parsedMetadata = {}
+          try {
+            parsedMetadata = JSON.parse(decodedToken.fields[2])
+          } catch (_) {}
+          assets[decodedAssetId] = {
+            ...parsedMetadata,
+            new: true,
+            incoming: true,
+            incomingAmount: amount,
+            balance: 0,
+            metadata: decodedToken.fields[2]
+          }
+        }
+      } catch (e) {
+        console.error('Error parsing incoming message', e)
+      }
+    }
+
     return Object.entries(assets).map(([a, o]) => ({ ...o!, assetId: a }))
   }
 
@@ -114,8 +159,7 @@ export class BTMS {
    * @returns {Promise<any>} Returns a promise that resolves to a transaction action object.
    * @throws {Error} Throws an error if the sender does not have enough tokens.
    */
-  async send(assetId: string, recipient: string, sendAmount: number): Promise<any> {
-    debugger
+  async send (assetId: string, recipient: string, sendAmount: number): Promise<any> {
     const myTokens = await this.getTokens(assetId, true)
     const myBalance = await this.getBalance(assetId, myTokens)
     const myIdentityKey = await getPublicKey({ identityKey: true })
@@ -141,7 +185,7 @@ export class BTMS {
         outputAmount: t.amount,
         protocolID: this.protocolID,
         keyID: '1',
-        counterparty: t.customInstructions ? JSON.parse(JSON.parse(t.customInstructions)).sender : 'self'
+        counterparty: t.customInstructions ? JSON.parse(t.customInstructions).sender : 'self'
       })
       if (!inputs[t.txid]) {
         inputs[t.txid] = {
@@ -232,40 +276,41 @@ export class BTMS {
     })
 
     // Process our own change outputs
-    if (changeScript) {
-      action.outputs = [{
-        vout: 1,
-        basket: this.basket,
-        satoshis: this.satoshis,
-        customInstructions: JSON.stringify({
-          sender: myIdentityKey
-        })
-      }]
-      // Currently broken until new Ninja
-      try {
-        await submitDirectTransaction({
-          senderIdentityKey: myIdentityKey,
-          note: 'Reclaim change',
-          amount: this.satoshis,
-          transaction: action
-        })
-      } catch (error) {
-        console.error('broken till Ninja', error)
-      }
-      // TODO: This is useful if we are ever acting statefully in the future
-      // Statefully as in storing this.myTokens and this.myBalances across
-      // invocations, which would make things faster.
-      // const tokenForChange = {
-      //   txid: action.txid,
-      //   vout: 1,
-      //   amount: 1000,
-      //   envelope: {
-      //     ...action
-      //   },
-      //   outputScript: changeScript
-      // };
-      // Stateful this.myTokens.push(...)
-    }
+    // Is this necessary? We already inserted our own change into a basket...
+    // if (changeScript) {
+    //   action.outputs = [{
+    //     vout: 1,
+    //     basket: this.basket,
+    //     satoshis: this.satoshis,
+    //     customInstructions: JSON.stringify({
+    //       sender: myIdentityKey
+    //     })
+    //   }]
+    //   // Currently broken until new Ninja
+    //   try {
+    //     await submitDirectTransaction({
+    //       senderIdentityKey: myIdentityKey,
+    //       note: 'Reclaim change',
+    //       amount: this.satoshis,
+    //       transaction: action
+    //     })
+    //   } catch (error) {
+    //     console.error('broken till Ninja', error)
+    //   }
+    //   // TODO: This is useful if we are ever acting statefully in the future
+    //   // Statefully as in storing this.myTokens and this.myBalances across
+    //   // invocations, which would make things faster.
+    //   // const tokenForChange = {
+    //   //   txid: action.txid,
+    //   //   vout: 1,
+    //   //   amount: 1000,
+    //   //   envelope: {
+    //   //     ...action
+    //   //   },
+    //   //   outputScript: changeScript
+    //   // };
+    //   // Stateful this.myTokens.push(...)
+    // }
 
     return await this.submitToOverlay(action)
   }
@@ -290,9 +335,17 @@ export class BTMS {
           script: token.outputScript,
           fieldFormat: 'utf8'
         })
-        const amount = Number(decodedToken.fields[0])
+        let decodedAssetId = decodedToken.fields[0]
+        if (decodedAssetId === 'ISSUE') {
+          decodedAssetId = `${token.txid}.${token.vout}`
+        }
+        if (assetId !== decodedAssetId) continue
+        const amount = Number(decodedToken.fields[1])
         payments.push({
+          ...token,
           txid: token.txid,
+          vout: token.vout,
+          outputScript: token.outputScript,
           amount,
           token,
           sender: message.sender,
@@ -311,6 +364,13 @@ export class BTMS {
       script: payment.outputScript,
       fieldFormat: 'utf8'
     })
+    let decodedAssetId = decodedToken.fields[0]
+    if (decodedAssetId === 'ISSUE') {
+      decodedAssetId = `${payment.txid}.${payment.vout}`
+    }
+    if (assetId !== decodedAssetId) {
+      throw new Error('This token is for the wrong asset ID. You are indicating you want to accept a token with asset ID ${assetId} but this token has assetId ${decodedAssetId}')
+    }
 
     const myKey = await getPublicKey({
       protocolID: this.protocolID,
@@ -344,7 +404,7 @@ export class BTMS {
         ...payment.envelope,
         outputs: [{
           vout: 0,
-          basket: assetId,
+          basket: this.basket,
           satoshis: this.satoshis,
           customInstructions: JSON.stringify({
             sender: payment.sender
