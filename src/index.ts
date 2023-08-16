@@ -346,16 +346,12 @@ export class BTMS {
       return false
     }
 
-    console.log('This token belongs to me!')
-
     // Verify the token is on the overlay
     const verified = await this.findFromOverlay(payment)
     if (verified.length < 1) {
       console.error('Token is for me but not on the overlay!')
       return false
     }
-
-    console.log('Token is on the overlay!')
 
     // Submit transaction
     await submitDirectTransaction({
