@@ -383,7 +383,6 @@ export class BTMS {
   }
 
   async refundIncomingTransaction(assetId: string, payment: any): Promise<boolean> {
-    debugger
     // We can decode the first token to extract the metadata needed in the outputs
     const { fields: [, , metadata] } = pushdrop.decode({
       script: payment.outputScript,
