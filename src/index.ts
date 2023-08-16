@@ -182,7 +182,7 @@ export class BTMS {
         prevTxId: t.txid,
         outputIndex: t.vout,
         lockingScript: t.outputScript,
-        outputAmount: t.amount,
+        outputAmount: this.satoshis,
         protocolID: this.protocolID,
         keyID: '1',
         counterparty: this.getCounterpartyFromInstructions(t.customInstructions)
@@ -382,7 +382,8 @@ export class BTMS {
     return true
   }
 
-  async refundIncomingTransaction (assetId: string, payment: any): Promise<boolean> {
+  async refundIncomingTransaction(assetId: string, payment: any): Promise<boolean> {
+    debugger
     // We can decode the first token to extract the metadata needed in the outputs
     const { fields: [, , metadata] } = pushdrop.decode({
       script: payment.outputScript,
@@ -395,7 +396,7 @@ export class BTMS {
         prevTxId: payment.txid,
         outputIndex: payment.vout,
         lockingScript: payment.outputScript,
-        outputAmount: payment.amount,
+        outputAmount: this.satoshis,
         protocolID: this.protocolID,
         keyID: '1',
         counterparty: payment.sender
@@ -457,6 +458,10 @@ export class BTMS {
       body: JSON.stringify({
         token: tokenForRecipient
       })
+    })
+
+    await this.tokenator.acknowledgeMessage({
+      messageIds: [payment.messageId]
     })
 
     return await this.submitToOverlay(action)
