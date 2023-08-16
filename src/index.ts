@@ -10,13 +10,13 @@ import Tokenator from '@babbage/tokenator'
 export class BTMS {
   confederacyHost: string
   peerServHost: string
-  tokenator: any
+  tokenator: Tokenator
   messageBox: string
   protocolID: string
   basket: string
   topic: string
   satoshis: number
-  authrite: any
+  authrite: Authrite
 
   /**
    * BTMS constructor.
@@ -185,7 +185,7 @@ export class BTMS {
         outputAmount: t.amount,
         protocolID: this.protocolID,
         keyID: '1',
-        counterparty: t.customInstructions ? JSON.parse(t.customInstructions).sender : 'self'
+        counterparty: this.getCounterpartyFromInstructions(t.customInstructions)
       })
       if (!inputs[t.txid]) {
         inputs[t.txid] = {
@@ -274,44 +274,6 @@ export class BTMS {
         token: tokenForRecipient
       })
     })
-
-    // Process our own change outputs
-    // Is this necessary? We already inserted our own change into a basket...
-    // if (changeScript) {
-    //   action.outputs = [{
-    //     vout: 1,
-    //     basket: this.basket,
-    //     satoshis: this.satoshis,
-    //     customInstructions: JSON.stringify({
-    //       sender: myIdentityKey
-    //     })
-    //   }]
-    //   // Currently broken until new Ninja
-    //   try {
-    //     await submitDirectTransaction({
-    //       senderIdentityKey: myIdentityKey,
-    //       note: 'Reclaim change',
-    //       amount: this.satoshis,
-    //       transaction: action
-    //     })
-    //   } catch (error) {
-    //     console.error('broken till Ninja', error)
-    //   }
-    //   // TODO: This is useful if we are ever acting statefully in the future
-    //   // Statefully as in storing this.myTokens and this.myBalances across
-    //   // invocations, which would make things faster.
-    //   // const tokenForChange = {
-    //   //   txid: action.txid,
-    //   //   vout: 1,
-    //   //   amount: 1000,
-    //   //   envelope: {
-    //   //     ...action
-    //   //   },
-    //   //   outputScript: changeScript
-    //   // };
-    //   // Stateful this.myTokens.push(...)
-    // }
-
     return await this.submitToOverlay(action)
   }
 
@@ -413,12 +375,91 @@ export class BTMS {
       }
     })
 
+    await this.tokenator.acknowledgeMessage({
+      messageIds: [payment.messageId]
+    })
+
     return true
   }
 
-  async refundIncomingTransaction (assetId: string, txid: string): Promise<boolean> {
-    // TODO: implement this method
-    throw new Error('Not Implemented')
+  async refundIncomingTransaction (assetId: string, payment: any): Promise<boolean> {
+    // We can decode the first token to extract the metadata needed in the outputs
+    const { fields: [, , metadata] } = pushdrop.decode({
+      script: payment.outputScript,
+      fieldFormat: 'utf8'
+    })
+
+    // Create redeem scripts for your tokens
+    const inputs: any = {}
+      const unlockingScript = await pushdrop.redeem({
+        prevTxId: payment.txid,
+        outputIndex: payment.vout,
+        lockingScript: payment.outputScript,
+        outputAmount: payment.amount,
+        protocolID: this.protocolID,
+        keyID: '1',
+        counterparty: payment.sender
+      })
+        inputs[payment.txid] = {
+          ...payment.envelope,
+          inputs: typeof payment.envelope.inputs === 'string'
+            ? JSON.parse(payment.envelope.inputs)
+            : payment.envelope.inputs,
+          mapiResponses: typeof payment.envelope.mapiResponses === 'string'
+            ? JSON.parse(payment.envelope.mapiResponses)
+            : payment.envelope.mapiResponses,
+          proof: typeof payment.envelope.proof === 'string'
+            ? JSON.parse(payment.envelope.proof)
+            : payment.envelope.proof,
+          outputsToRedeem: [{
+            index: payment.vout,
+            unlockingScript
+          }]
+        }
+
+    // Create outputs for the recipient and your own change
+    const outputs: any[] = []
+    const recipientScript = await pushdrop.create({
+      fields: [
+        assetId,
+        String(payment.amount),
+        metadata
+      ],
+      protocolID: this.protocolID,
+      keyID: '1',
+      counterparty: payment.sender
+    })
+    outputs.push({
+      script: recipientScript,
+      satoshis: this.satoshis
+    })
+    // Create the transaction
+    const action = await createAction({
+      description: `Returning ${payment.amount} tokens to ${payment.sender}`,
+      inputs,
+      outputs
+    })
+
+    const tokenForRecipient = {
+      txid: action.txid,
+      vout: 0,
+      amount: this.satoshis,
+      envelope: {
+        ...action
+      },
+      outputScript: recipientScript
+    }
+
+    // Send the transaction to the recipient
+    await this.tokenator.sendMessage({
+      recipient: payment.sender,
+      messageBox: this.messageBox,
+      body: JSON.stringify({
+        token: tokenForRecipient
+      })
+    })
+
+    return await this.submitToOverlay(action)
   }
 
   /**
@@ -475,12 +516,13 @@ export class BTMS {
     return balance
   }
 
-  async getTransactions (assetId: string, limit: number, offset: number): Promise<any[]> {
+  async getTransactions(assetId: string, limit: number, offset: number): Promise<any[]> {
     // TODO: implement this method
     throw new Error('Not Implemented')
   }
 
-  async proveOwnership (assetId: string, amount: number, verifier: string): Promise<any> {
+  async proveOwnership(assetId: string, amount: number, verifier: string): Promise<any> {
+    // Make use of new proveKeyLinkage Babbage SDK function
     // TODO: implement this method
     throw new Error('Not Implemented')
   }
@@ -520,5 +562,15 @@ export class BTMS {
       })
     })
     return await result.json()
+  }
+
+  private getCounterpartyFromInstructions(i) {
+    if (!i) {
+      return 'self'
+    }
+    while (typeof i === 'string') {
+      i = JSON.parse(i)
+    }
+    return i.sender
   }
 }
