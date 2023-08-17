@@ -236,6 +236,12 @@ export class BTMS {
       satoshis: this.satoshis,
       description: `Sending ${sendAmount} ${parsedMetadata.name}`
     })
+    if (myIdentityKey === 'recipient') {
+      outputs[0].basket = this.basket
+      outputs[0].customInstructions = JSON.stringify({
+        sender: myIdentityKey
+      })
+    }
     let changeScript
     if (myBalance - sendAmount > 0) {
       changeScript = await pushdrop.create({
@@ -265,24 +271,27 @@ export class BTMS {
       outputs
     })
 
-    const tokenForRecipient = {
-      txid: action.txid,
-      vout: 0,
-      amount: this.satoshis,
-      envelope: {
-        ...action
-      },
-      outputScript: recipientScript
+    if (myIdentityKey !== recipient) {
+      const tokenForRecipient = {
+        txid: action.txid,
+        vout: 0,
+        amount: this.satoshis,
+        envelope: {
+          ...action
+        },
+        outputScript: recipientScript
+      }
+
+      // Send the transaction to the recipient
+      await this.tokenator.sendMessage({
+        recipient,
+        messageBox: this.messageBox,
+        body: JSON.stringify({
+          token: tokenForRecipient
+        })
+      })
     }
 
-    // Send the transaction to the recipient
-    await this.tokenator.sendMessage({
-      recipient,
-      messageBox: this.messageBox,
-      body: JSON.stringify({
-        token: tokenForRecipient
-      })
-    })
     return await this.submitToOverlay(action)
   }
 
@@ -340,26 +349,46 @@ export class BTMS {
       decodedAssetId = `${payment.txid}.${payment.vout}`
     }
     if (assetId !== decodedAssetId) {
+      // Not something we can hope to fix, we acknowledge the message
+      await this.tokenator.acknowledgeMessage({
+      messageIds: [payment.messageId]
+    })
       throw new Error('This token is for the wrong asset ID. You are indicating you want to accept a token with asset ID ${assetId} but this token has assetId ${decodedAssetId}')
     }
-
     const myKey = await getPublicKey({
       protocolID: this.protocolID,
       keyID: '1',
       counterparty: payment.sender,
       forSelf: true
     })
-
     if (myKey !== decodedToken.lockingPublicKey) {
-      console.error('Received token not belonging to me!')
-      return false
+      // Not something we can hope to fix, we acknowledge the message
+      await this.tokenator.acknowledgeMessage({
+      messageIds: [payment.messageId]
+    })
+      throw new Error('Received token not belonging to me!')
     }
 
     // Verify the token is on the overlay
     const verified = await this.findFromOverlay(payment)
     if (verified.length < 1) {
-      console.error('Token is for me but not on the overlay!')
-      return false
+      // Try to put it on the overlay
+      try {
+        await this.submitToOverlay(payment)
+      } catch (e) {
+        console.error('ERROR RE-SUBMITTING IN ACCEPT', e)
+      }
+
+      // Check again
+      const verifiedAfterSubmit = await this.findFromOverlay(payment)
+      // If still not there, we cannot proceed.
+      if (verifiedAfterSubmit) {
+        // Not something we can hope to fix, we acknowledge the message
+        await this.tokenator.acknowledgeMessage({
+          messageIds: [payment.messageId]
+        })
+        throw new Error('Token is for me but not on the overlay!')
+      }
     }
 
     let parsedMetadata:{name:String} = {name:'Token'}
