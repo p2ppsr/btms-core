@@ -67,10 +67,13 @@ export class BTMS {
       if (assetId === 'ISSUE') {
         assetId = `${token.txid}.${token.vout}`
       }
-      let parsedMetadata = {}
+      let parsedMetadata:{name:string} = {name: ''}
       try {
         parsedMetadata = JSON.parse(decoded.fields[2])
-      } catch (_) {}
+      } catch (_) { }
+      if (!parsedMetadata.name) {
+        continue
+      }
       if (!assets[assetId]) {
         assets[assetId] = {
           ...parsedMetadata,
@@ -236,7 +239,7 @@ export class BTMS {
       satoshis: this.satoshis,
       description: `Sending ${sendAmount} ${parsedMetadata.name}`
     })
-    if (myIdentityKey === 'recipient') {
+    if (myIdentityKey === recipient) {
       outputs[0].basket = this.basket
       outputs[0].customInstructions = JSON.stringify({
         sender: myIdentityKey
@@ -258,7 +261,7 @@ export class BTMS {
         script: changeScript,
         basket: this.basket,
         satoshis: this.satoshis,
-        description: `Keeping ${sendAmount} ${parsedMetadata.name}`,
+        description: `Keeping ${String(myBalance - sendAmount)} ${parsedMetadata.name}`,
         customInstructions: JSON.stringify({
           sender: myIdentityKey
         })
