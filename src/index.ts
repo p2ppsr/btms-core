@@ -144,7 +144,8 @@ export class BTMS {
       outputs: [{
         script: tokenScript,
         satoshis: this.satoshis,
-        basket: this.basket
+        basket: this.basket,
+        description: `${amount} new ${name}`
       }]
     })
     return await this.submitToOverlay(action)
@@ -174,6 +175,10 @@ export class BTMS {
       script: myTokens[0].outputScript,
       fieldFormat: 'utf8'
     })
+    let parsedMetadata:{name:String} = {name:'Token'}
+    try {
+      parsedMetadata = JSON.parse(metadata)
+    } catch (e) {}
 
     // Create redeem scripts for your tokens
     const inputs: any = {}
@@ -201,13 +206,15 @@ export class BTMS {
             : t.envelope.proof,
           outputsToRedeem: [{
             index: t.vout,
+            spendingDescription: `Redeeming ${parsedMetadata.name}`,
             unlockingScript
           }]
         }
       } else {
         inputs[t.txid].outputsToRedeem.push({
           index: t.vout,
-          unlockingScript
+          unlockingScript,
+          spendingDescription: `Redeeming ${parsedMetadata.name}`
         })
       }
     }
@@ -226,7 +233,8 @@ export class BTMS {
     })
     outputs.push({
       script: recipientScript,
-      satoshis: this.satoshis
+      satoshis: this.satoshis,
+      description: `Sending ${sendAmount} ${parsedMetadata.name}`
     })
     let changeScript
     if (myBalance - sendAmount > 0) {
@@ -244,6 +252,7 @@ export class BTMS {
         script: changeScript,
         basket: this.basket,
         satoshis: this.satoshis,
+        description: `Keeping ${sendAmount} ${parsedMetadata.name}`,
         customInstructions: JSON.stringify({
           sender: myIdentityKey
         })
@@ -251,7 +260,7 @@ export class BTMS {
     }
     // Create the transaction
     const action = await createAction({
-      description: `Send ${sendAmount} tokens to ${recipient}`,
+      description: `Send ${sendAmount} ${parsedMetadata.name} to ${recipient}`,
       inputs,
       outputs
     })
@@ -353,10 +362,15 @@ export class BTMS {
       return false
     }
 
+    let parsedMetadata:{name:String} = {name:'Token'}
+    try {
+      parsedMetadata = JSON.parse(decodedToken.fields[2])
+    } catch (e) {}
+
     // Submit transaction
     await submitDirectTransaction({
       senderIdentityKey: payment.sender,
-      note: 'Receive token',
+      note: `Receive ${decodedToken.fields[1]} ${parsedMetadata.name} from ${payment.sender}`,
       amount: this.satoshis,
       transaction: {
         ...payment.envelope,
