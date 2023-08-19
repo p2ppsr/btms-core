@@ -36,7 +36,7 @@ export class BTMS {
     protocolID = 'tokens',
     basket = 'tokens',
     topic = 'tokens',
-    satoshis = 1000
+    satoshis = 1000,
   ) {
     this.confederacyHost = confederacyHost
     this.peerServHost = peerServHost
@@ -163,7 +163,7 @@ export class BTMS {
    * @returns {Promise<any>} Returns a promise that resolves to a transaction action object.
    * @throws {Error} Throws an error if the sender does not have enough tokens.
    */
-  async send (assetId: string, recipient: string, sendAmount: number): Promise<any> {
+  async send (assetId: string, recipient: string, sendAmount: number, disablePeerServ = false, onPaymentSent = (payment: any) => { }): Promise<any> {
     const myTokens = await this.getTokens(assetId, true)
     const myBalance = await this.getBalance(assetId, myTokens)
     const myIdentityKey = await getPublicKey({ identityKey: true })
@@ -274,8 +274,7 @@ export class BTMS {
       outputs
     })
 
-    if (myIdentityKey !== recipient) {
-      const tokenForRecipient = {
+    const tokenForRecipient = {
         txid: action.txid,
         vout: 0,
         amount: this.satoshis,
@@ -285,15 +284,19 @@ export class BTMS {
         outputScript: recipientScript
       }
 
-      // Send the transaction to the recipient
-      await this.tokenator.sendMessage({
-        recipient,
-        messageBox: this.messageBox,
-        body: JSON.stringify({
-          token: tokenForRecipient
+    if (myIdentityKey !== recipient && !disablePeerServ) {
+        // Send the transaction to the recipient
+        await this.tokenator.sendMessage({
+          recipient,
+          messageBox: this.messageBox,
+          body: JSON.stringify({
+            token: tokenForRecipient
+          })
         })
-      })
     }
+    try {
+      onPaymentSent(tokenForRecipient)
+    } catch (e) {}
 
     return await this.submitToOverlay(action)
   }
@@ -417,9 +420,11 @@ export class BTMS {
       }
     })
 
-    await this.tokenator.acknowledgeMessage({
-      messageIds: [payment.messageId]
-    })
+    if (payment.messageId) {
+      await this.tokenator.acknowledgeMessage({
+        messageIds: [payment.messageId]
+      })
+    }
 
     return true
   }
@@ -501,9 +506,11 @@ export class BTMS {
       })
     })
 
-    await this.tokenator.acknowledgeMessage({
-      messageIds: [payment.messageId]
-    })
+    if (payment.messageId) {
+      await this.tokenator.acknowledgeMessage({
+        messageIds: [payment.messageId]
+      })
+    }
 
     return await this.submitToOverlay(action)
   }
