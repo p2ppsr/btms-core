@@ -46,7 +46,7 @@
   "dependencies": {
     "@babbage/sdk": "^0.4.25",
     "@babbage/tokenator": "^0.1.2",
-    "authrite-js": "^0.3.0",
+    "authrite-js": "^0.3.2",
     "babbage-bsv": "^0.1.1",
     "pushdrop": "^0.1.21",
     "typedoc": "^0.24.8"
