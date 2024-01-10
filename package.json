@@ -1,6 +1,6 @@
 {
   "name": "btms-core",
-  "version": "0.1.17",
+  "version": "0.1.18",
   "description": "Tools for creating and managing UTXO-based tokens",
   "main": "./out/src/index.js",
   "types": "./out/src/index.d.ts",
