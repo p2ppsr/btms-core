@@ -44,9 +44,9 @@
     "typescript": "^4.9.5"
   },
   "dependencies": {
-    "@babbage/sdk": "^0.4.34",
-    "@babbage/tokenator": "^0.1.13",
-    "authrite-js": "^0.3.21",
+    "@babbage/sdk": "^0.4.35",
+    "@babbage/tokenator": "^0.1.14",
+    "authrite-js": "^0.3.22",
     "babbage-bsv": "^0.2.4",
     "pushdrop": "^0.1.31",
     "typedoc": "^0.24.8"
