@@ -1,5 +1,5 @@
 import pushdrop from 'pushdrop'
-import { createAction, getTransactionOutputs, getPublicKey, submitDirectTransaction } from '@babbage/sdk'
+import { createAction, getTransactionOutputs, getPublicKey, submitDirectTransaction, listActions } from '@babbage/sdk'
 import { Authrite } from 'authrite-js'
 import Tokenator from '@babbage/tokenator'
 
@@ -29,7 +29,7 @@ export class BTMS {
    * @param {string} topic - The topic associated with the asset.
    * @param {number} satoshis - The number of satoshis involved in transactions.
    */
-  constructor (
+  constructor(
     confederacyHost = 'https://confederacy.babbage.systems',
     peerServHost = 'https://peerserv.babbage.systems',
     messageBox = 'tokens-box',
@@ -51,7 +51,7 @@ export class BTMS {
     this.authrite = new Authrite()
   }
 
-  async listAssets (): Promise<any[]> {
+  async listAssets(): Promise<any[]> {
     const tokens = await getTransactionOutputs({
       basket: this.basket,
       spendable: true,
@@ -67,7 +67,7 @@ export class BTMS {
       if (assetId === 'ISSUE') {
         assetId = `${token.txid}.${token.vout}`
       }
-      let parsedMetadata:{name:string} = {name: ''}
+      let parsedMetadata: { name: string } = { name: '' }
       try {
         parsedMetadata = JSON.parse(decoded.fields[2])
       } catch (_) { }
@@ -114,7 +114,7 @@ export class BTMS {
           let parsedMetadata = {}
           try {
             parsedMetadata = JSON.parse(decodedToken.fields[2])
-          } catch (_) {}
+          } catch (_) { }
           assets[decodedAssetId] = {
             ...parsedMetadata,
             new: true,
@@ -132,7 +132,7 @@ export class BTMS {
     return Object.entries(assets).map(([a, o]) => ({ ...o!, assetId: a }))
   }
 
-  async issue (amount: number, name: string) {
+  async issue(amount: number, name: string) {
     const tokenScript = await pushdrop.create({
       fields: [
         'ISSUE',
@@ -144,6 +144,7 @@ export class BTMS {
     })
     const action = await createAction({
       description: `Issue ${amount} ${name} ${amount === 1 ? 'token' : 'tokens'}`,
+      // labels: ??? // TODO: Label the issuance transaction with the issuance ID after it is created. Currently, issuance transactions do not show up.
       outputs: [{
         script: tokenScript,
         satoshis: this.satoshis,
@@ -163,7 +164,7 @@ export class BTMS {
    * @returns {Promise<any>} Returns a promise that resolves to a transaction action object.
    * @throws {Error} Throws an error if the sender does not have enough tokens.
    */
-  async send (assetId: string, recipient: string, sendAmount: number, disablePeerServ = false, onPaymentSent = (payment: any) => { }): Promise<any> {
+  async send(assetId: string, recipient: string, sendAmount: number, disablePeerServ = false, onPaymentSent = (payment: any) => { }): Promise<any> {
     const myTokens = await this.getTokens(assetId, true)
     const myBalance = await this.getBalance(assetId, myTokens)
     const myIdentityKey = await getPublicKey({ identityKey: true })
@@ -178,10 +179,10 @@ export class BTMS {
       script: myTokens[0].outputScript,
       fieldFormat: 'utf8'
     })
-    let parsedMetadata:{name:String} = {name:'Token'}
+    let parsedMetadata: { name: String } = { name: 'Token' }
     try {
       parsedMetadata = JSON.parse(metadata)
-    } catch (e) {}
+    } catch (e) { }
 
     // Create redeem scripts for your tokens
     const inputs: any = {}
@@ -270,33 +271,34 @@ export class BTMS {
     // Create the transaction
     const action = await createAction({
       description: `Send ${sendAmount} ${parsedMetadata.name} to ${recipient}`,
+      labels: [assetId.replace('.', ' ')],
       inputs,
       outputs
     })
 
     const tokenForRecipient = {
-        txid: action.txid,
-        vout: 0,
-        amount: this.satoshis,
-        envelope: {
-          ...action
-        },
-        outputScript: recipientScript
-      }
+      txid: action.txid,
+      vout: 0,
+      amount: this.satoshis,
+      envelope: {
+        ...action
+      },
+      outputScript: recipientScript
+    }
 
     if (myIdentityKey !== recipient && !disablePeerServ) {
-        // Send the transaction to the recipient
-        await this.tokenator.sendMessage({
-          recipient,
-          messageBox: this.messageBox,
-          body: JSON.stringify({
-            token: tokenForRecipient
-          })
+      // Send the transaction to the recipient
+      await this.tokenator.sendMessage({
+        recipient,
+        messageBox: this.messageBox,
+        body: JSON.stringify({
+          token: tokenForRecipient
         })
+      })
     }
     try {
       onPaymentSent(tokenForRecipient)
-    } catch (e) {}
+    } catch (e) { }
 
     return await this.submitToOverlay(action)
   }
@@ -307,7 +309,7 @@ export class BTMS {
    * @param {string} assetId - The ID of the asset.
    * @returns {Promise<any[]>} Returns a promise that resolves to an array of payment objects.
    */
-  async listIncomingPayments (assetId: string): Promise<any[]> {
+  async listIncomingPayments(assetId: string): Promise<any[]> {
     const myIncomingMessages = await this.tokenator.listMessages({
       messageBox: this.messageBox
     })
@@ -344,7 +346,7 @@ export class BTMS {
     return payments
   }
 
-  async acceptIncomingPayment (assetId: string, payment: any): Promise<boolean> {
+  async acceptIncomingPayment(assetId: string, payment: any): Promise<boolean> {
     // Verify the token is owned by the user
     const decodedToken = pushdrop.decode({
       script: payment.outputScript,
@@ -357,8 +359,8 @@ export class BTMS {
     if (assetId !== decodedAssetId) {
       // Not something we can hope to fix, we acknowledge the message
       await this.tokenator.acknowledgeMessage({
-      messageIds: [payment.messageId]
-    })
+        messageIds: [payment.messageId]
+      })
       throw new Error('This token is for the wrong asset ID. You are indicating you want to accept a token with asset ID ${assetId} but this token has assetId ${decodedAssetId}')
     }
     const myKey = await getPublicKey({
@@ -370,8 +372,8 @@ export class BTMS {
     if (myKey !== decodedToken.lockingPublicKey) {
       // Not something we can hope to fix, we acknowledge the message
       await this.tokenator.acknowledgeMessage({
-      messageIds: [payment.messageId]
-    })
+        messageIds: [payment.messageId]
+      })
       throw new Error('Received token not belonging to me!')
     }
 
@@ -397,10 +399,10 @@ export class BTMS {
       }
     }
 
-    let parsedMetadata:{name:String} = {name:'Token'}
+    let parsedMetadata: { name: String } = { name: 'Token' }
     try {
       parsedMetadata = JSON.parse(decodedToken.fields[2])
-    } catch (e) {}
+    } catch (e) { }
 
     // Submit transaction
     await submitDirectTransaction({
@@ -409,6 +411,7 @@ export class BTMS {
       amount: this.satoshis,
       transaction: {
         ...payment.envelope,
+        labels: [assetId.replace('.', ' ')],
         outputs: [{
           vout: 0,
           basket: this.basket,
@@ -438,31 +441,31 @@ export class BTMS {
 
     // Create redeem scripts for your tokens
     const inputs: any = {}
-      const unlockingScript = await pushdrop.redeem({
-        prevTxId: payment.txid,
-        outputIndex: payment.vout,
-        lockingScript: payment.outputScript,
-        outputAmount: this.satoshis,
-        protocolID: this.protocolID,
-        keyID: '1',
-        counterparty: payment.sender
-      })
-        inputs[payment.txid] = {
-          ...payment.envelope,
-          inputs: typeof payment.envelope.inputs === 'string'
-            ? JSON.parse(payment.envelope.inputs)
-            : payment.envelope.inputs,
-          mapiResponses: typeof payment.envelope.mapiResponses === 'string'
-            ? JSON.parse(payment.envelope.mapiResponses)
-            : payment.envelope.mapiResponses,
-          proof: typeof payment.envelope.proof === 'string'
-            ? JSON.parse(payment.envelope.proof)
-            : payment.envelope.proof,
-          outputsToRedeem: [{
-            index: payment.vout,
-            unlockingScript
-          }]
-        }
+    const unlockingScript = await pushdrop.redeem({
+      prevTxId: payment.txid,
+      outputIndex: payment.vout,
+      lockingScript: payment.outputScript,
+      outputAmount: this.satoshis,
+      protocolID: this.protocolID,
+      keyID: '1',
+      counterparty: payment.sender
+    })
+    inputs[payment.txid] = {
+      ...payment.envelope,
+      inputs: typeof payment.envelope.inputs === 'string'
+        ? JSON.parse(payment.envelope.inputs)
+        : payment.envelope.inputs,
+      mapiResponses: typeof payment.envelope.mapiResponses === 'string'
+        ? JSON.parse(payment.envelope.mapiResponses)
+        : payment.envelope.mapiResponses,
+      proof: typeof payment.envelope.proof === 'string'
+        ? JSON.parse(payment.envelope.proof)
+        : payment.envelope.proof,
+      outputsToRedeem: [{
+        index: payment.vout,
+        unlockingScript
+      }]
+    }
 
     // Create outputs for the recipient and your own change
     const outputs: any[] = []
@@ -482,6 +485,7 @@ export class BTMS {
     })
     // Create the transaction
     const action = await createAction({
+      labels: [assetId.replace('.', ' ')],
       description: `Returning ${payment.amount} tokens to ${payment.sender}`,
       inputs,
       outputs
@@ -522,7 +526,7 @@ export class BTMS {
    * @param {boolean} includeEnvelope - Include the envelope in the result.
    * @returns {Promise<any[]>} Returns a promise that resolves to an array of token objects.
    */
-  async getTokens (assetId: string, includeEnvelope: boolean = true) {
+  async getTokens(assetId: string, includeEnvelope: boolean = true) {
     const tokens = await getTransactionOutputs({
       basket: this.basket,
       spendable: true,
@@ -548,7 +552,7 @@ export class BTMS {
    * @param {any[]} myTokens - (Optional) An array of token objects owned by the caller.
    * @returns {Promise<number>} Returns a promise that resolves to the balance.
    */
-  async getBalance (assetId: string, myTokens?: any[]): Promise<number> {
+  async getBalance(assetId: string, myTokens?: any[]): Promise<number> {
     if (!Array.isArray(myTokens)) {
       myTokens = await this.getTokens(assetId, false)
     }
@@ -570,8 +574,18 @@ export class BTMS {
   }
 
   async getTransactions(assetId: string, limit: number, offset: number): Promise<any[]> {
-    // TODO: implement this method
-    throw new Error('Not Implemented')
+    const actions = await listActions({
+      label: assetId.replace('.', ' '),
+      limit,
+      offset
+    })
+    if (Array.isArray(actions.transactions)) {
+      actions.transactions = actions.transactions.map(a => {
+        console.log(a) // TODO: parse this
+        return a
+      })
+    }
+    return actions
   }
 
   async proveOwnership(assetId: string, amount: number, verifier: string): Promise<any> {
@@ -580,12 +594,12 @@ export class BTMS {
     throw new Error('Not Implemented')
   }
 
-  async verifyOwnership (assetId: string, amount: number, prover: string, proof: any): Promise<boolean> {
+  async verifyOwnership(assetId: string, amount: number, prover: string, proof: any): Promise<boolean> {
     // TODO: implement this method
     throw new Error('Not Implemented')
   }
 
-  private async findFromOverlay (token: { txid: string, vout: number }): Promise<any> {
+  private async findFromOverlay(token: { txid: string, vout: number }): Promise<any> {
     const result = await this.authrite.request(`${this.confederacyHost}/lookup`, {
       method: 'post',
       headers: {
@@ -603,7 +617,7 @@ export class BTMS {
     return await result.json()
   }
 
-  private async submitToOverlay (tx, topics = [this.topic]) {
+  private async submitToOverlay(tx, topics = [this.topic]) {
     const result = await this.authrite.request(`${this.confederacyHost}/submit`, {
       method: 'post',
       headers: {
