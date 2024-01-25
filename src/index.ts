@@ -36,7 +36,7 @@ export class BTMS {
     protocolID = 'tokens',
     basket = 'tokens',
     topic = 'tokens',
-    satoshis = 1000,
+    satoshis = 1000
   ) {
     this.confederacyHost = confederacyHost
     this.peerServHost = peerServHost
@@ -129,10 +129,11 @@ export class BTMS {
       }
     }
 
-    return Object.entries(assets).map(([a, o]) => ({ ...o!, assetId: a }))
+    return Object.entries(assets).map(([a, o]) => ({ ...o as object, assetId: a }))
   }
 
   async issue(amount: number, name: string) {
+    const keyID = this.getRandomKeyID()
     const tokenScript = await pushdrop.create({
       fields: [
         'ISSUE',
@@ -140,7 +141,7 @@ export class BTMS {
         JSON.stringify({ name })
       ],
       protocolID: this.protocolID,
-      keyID: '1'
+      keyID
     })
     const action = await createAction({
       description: `Issue ${amount} ${name} ${amount === 1 ? 'token' : 'tokens'}`,
@@ -149,7 +150,10 @@ export class BTMS {
         script: tokenScript,
         satoshis: this.satoshis,
         basket: this.basket,
-        description: `${amount} new ${name}`
+        description: `${amount} new ${name}`,
+        customInstructions: JSON.stringify({
+          keyID
+        })
       }]
     })
     return await this.submitToOverlay(action)
@@ -167,19 +171,19 @@ export class BTMS {
   async send(assetId: string, recipient: string, sendAmount: number, disablePeerServ = false, onPaymentSent = (payment: any) => { }): Promise<any> {
     const myTokens = await this.getTokens(assetId, true)
     const myBalance = await this.getBalance(assetId, myTokens)
-    const myIdentityKey = await getPublicKey({ identityKey: true })
-
     // Make sure the amount is not more than what you have
     if (sendAmount > myBalance) {
       throw new Error('Not sufficient tokens.')
     }
+
+    const myIdentityKey = await getPublicKey({ identityKey: true })
 
     // We can decode the first token to extract the metadata needed in the outputs
     const { fields: [, , metadata] } = pushdrop.decode({
       script: myTokens[0].outputScript,
       fieldFormat: 'utf8'
     })
-    let parsedMetadata: { name: String } = { name: 'Token' }
+    let parsedMetadata: { name: string } = { name: 'Token' }
     try {
       parsedMetadata = JSON.parse(metadata)
     } catch (e) { }
@@ -193,7 +197,7 @@ export class BTMS {
         lockingScript: t.outputScript,
         outputAmount: this.satoshis,
         protocolID: this.protocolID,
-        keyID: '1',
+        keyID: this.getKeyIDFromInstructions(t.customInstructions),
         counterparty: this.getCounterpartyFromInstructions(t.customInstructions)
       })
       if (!inputs[t.txid]) {
@@ -225,6 +229,7 @@ export class BTMS {
 
     // Create outputs for the recipient and your own change
     const outputs: any[] = []
+    const recipientKeyID = this.getRandomKeyID()
     const recipientScript = await pushdrop.create({
       fields: [
         assetId,
@@ -232,7 +237,7 @@ export class BTMS {
         metadata
       ],
       protocolID: this.protocolID,
-      keyID: '1',
+      keyID: recipientKeyID,
       counterparty: recipient
     })
     outputs.push({
@@ -246,11 +251,13 @@ export class BTMS {
     if (myIdentityKey === recipient) {
       outputs[0].basket = this.basket
       outputs[0].customInstructions = JSON.stringify({
-        sender: myIdentityKey
+        sender: myIdentityKey,
+        keyID: recipientKeyID
       })
     }
     let changeScript
     if (myBalance - sendAmount > 0) {
+      const changeKeyID = this.getRandomKeyID()
       changeScript = await pushdrop.create({
         fields: [
           assetId,
@@ -258,7 +265,7 @@ export class BTMS {
           metadata
         ],
         protocolID: this.protocolID,
-        keyID: '1',
+        keyID: changeKeyID,
         counterparty: 'self'
       })
       outputs.push({
@@ -268,7 +275,8 @@ export class BTMS {
         description: `Keeping ${String(myBalance - sendAmount)} ${parsedMetadata.name}`,
         tags: ['owner self'],
         customInstructions: JSON.stringify({
-          sender: myIdentityKey
+          sender: myIdentityKey,
+          keyID: changeKeyID
         })
       })
     }
@@ -287,6 +295,7 @@ export class BTMS {
       envelope: {
         ...action
       },
+      keyID: recipientKeyID,
       outputScript: recipientScript
     }
 
@@ -341,7 +350,8 @@ export class BTMS {
           amount,
           token,
           sender: message.sender,
-          messageId: message.messageId
+          messageId: message.messageId,
+          keyID: token.keyID
         })
       } catch (e) {
         console.error('Error parsing incoming message', e)
@@ -365,11 +375,11 @@ export class BTMS {
       await this.tokenator.acknowledgeMessage({
         messageIds: [payment.messageId]
       })
-      throw new Error('This token is for the wrong asset ID. You are indicating you want to accept a token with asset ID ${assetId} but this token has assetId ${decodedAssetId}')
+      throw new Error(`This token is for the wrong asset ID. You are indicating you want to accept a token with asset ID ${assetId} but this token has assetId ${decodedAssetId}`)
     }
     const myKey = await getPublicKey({
       protocolID: this.protocolID,
-      keyID: '1',
+      keyID: payment.keyID || '1',
       counterparty: payment.sender,
       forSelf: true
     })
@@ -403,7 +413,7 @@ export class BTMS {
       }
     }
 
-    let parsedMetadata: { name: String } = { name: 'Token' }
+    let parsedMetadata: { name: string } = { name: 'Token' }
     try {
       parsedMetadata = JSON.parse(decodedToken.fields[2])
     } catch (e) { }
@@ -422,7 +432,8 @@ export class BTMS {
           satoshis: this.satoshis,
           tags: ['owner self'],
           customInstructions: JSON.stringify({
-            sender: payment.sender
+            sender: payment.sender,
+            keyID: payment.keyID || '1'
           })
         }]
       }
@@ -452,7 +463,7 @@ export class BTMS {
       lockingScript: payment.outputScript,
       outputAmount: this.satoshis,
       protocolID: this.protocolID,
-      keyID: '1',
+      keyID: payment.keyID || '1',
       counterparty: payment.sender
     })
     inputs[payment.txid] = {
@@ -474,6 +485,7 @@ export class BTMS {
 
     // Create outputs for the recipient and your own change
     const outputs: any[] = []
+    const refundKeyID = this.getRandomKeyID()
     const recipientScript = await pushdrop.create({
       fields: [
         assetId,
@@ -481,7 +493,7 @@ export class BTMS {
         metadata
       ],
       protocolID: this.protocolID,
-      keyID: '1',
+      keyID: refundKeyID,
       counterparty: payment.sender
     })
     outputs.push({
@@ -503,6 +515,7 @@ export class BTMS {
       envelope: {
         ...action
       },
+      keyID: refundKeyID,
       outputScript: recipientScript
     }
 
@@ -684,5 +697,20 @@ export class BTMS {
       i = JSON.parse(i)
     }
     return i.sender
+  }
+
+  private getKeyIDFromInstructions(i) {
+    if (!i) {
+      return '1'
+    }
+    while (typeof i === 'string') {
+      i = JSON.parse(i)
+    }
+    return i.keyID
+  }
+
+  private getRandomKeyID() {
+    // eslint-disable-next-line
+    return require('crypto').randomBytes(32).toString('base64')
   }
 }
