@@ -238,7 +238,10 @@ export class BTMS {
     outputs.push({
       script: recipientScript,
       satoshis: this.satoshis,
-      description: `Sending ${sendAmount} ${parsedMetadata.name}`
+      description: `Sending ${sendAmount} ${parsedMetadata.name}`,
+      tags: [
+        myIdentityKey === recipient ? 'owner self' : `owner ${recipient}`
+      ]
     })
     if (myIdentityKey === recipient) {
       outputs[0].basket = this.basket
@@ -263,6 +266,7 @@ export class BTMS {
         basket: this.basket,
         satoshis: this.satoshis,
         description: `Keeping ${String(myBalance - sendAmount)} ${parsedMetadata.name}`,
+        tags: ['owner self'],
         customInstructions: JSON.stringify({
           sender: myIdentityKey
         })
@@ -416,6 +420,7 @@ export class BTMS {
           vout: 0,
           basket: this.basket,
           satoshis: this.satoshis,
+          tags: ['owner self'],
           customInstructions: JSON.stringify({
             sender: payment.sender
           })
@@ -577,12 +582,52 @@ export class BTMS {
     const actions = await listActions({
       label: assetId.replace('.', ' '),
       limit,
-      offset
+      offset,
+      addInputsAndOutputs: true,
+      includeBasket: true,
+      includeTags: true
     })
     if (Array.isArray(actions.transactions)) {
       actions.transactions = actions.transactions.map(a => {
-        console.log(a) // TODO: parse this
-        return a
+        let selfIn = 0
+        let counterpartyIn = 'self'
+        for (let i = 0; i < a.inputs.length; i++) {
+          if (a.inputs[i].tags.some(x => x === 'owner self')) {
+            const decoded = pushdrop.decode({
+              script: Buffer.from(a.inputs[i].outputScript.data).toString('hex'),
+              fieldFormat: 'utf8'
+            })
+            selfIn += Number(decoded.fields[1])
+          } else {
+            let ownerTag = a.inputs[i].tags.find(x => x.startsWith('owner '))
+            if (ownerTag) {
+              counterpartyIn = ownerTag.split(' ')[1]
+            }
+          }
+        }
+        let selfOut = 0
+        let counterpartyOut = 'self'
+        for (let i = 0; i < a.outputs.length; i++) {
+          if (a.outputs[i].tags.some(x => x === 'owner self')) {
+            const decoded = pushdrop.decode({
+              script: Buffer.from(a.outputs[i].outputScript.data).toString('hex'),
+              fieldFormat: 'utf8'
+            })
+            selfOut += Number(decoded.fields[1])
+          } else {
+            let ownerTag = a.outputs[i].tags.find(x => x.startsWith('owner '))
+            if (ownerTag) {
+              counterpartyOut = ownerTag.split(' ')[1]
+            }
+          }
+        }
+        const amount = selfIn = selfOut
+        return {
+          date: a.created_at,
+          amount,
+          txid: a.txid,
+          counterparty: amount < 0 ? counterpartyOut : counterpartyIn
+        }
       })
     }
     return actions
