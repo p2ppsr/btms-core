@@ -413,9 +413,9 @@ export class BTMS {
       senderIdentityKey: payment.sender,
       note: `Receive ${decodedToken.fields[1]} ${parsedMetadata.name} from ${payment.sender}`,
       amount: this.satoshis,
+      labels: [assetId.replace('.', ' ')],
       transaction: {
         ...payment.envelope,
-        labels: [assetId.replace('.', ' ')],
         outputs: [{
           vout: 0,
           basket: this.basket,
@@ -599,7 +599,7 @@ export class BTMS {
             })
             selfIn += Number(decoded.fields[1])
           } else {
-            let ownerTag = a.inputs[i].tags.find(x => x.startsWith('owner '))
+            const ownerTag = a.inputs[i].tags.find(x => x.startsWith('owner '))
             if (ownerTag) {
               counterpartyIn = ownerTag.split(' ')[1]
             }
@@ -615,13 +615,13 @@ export class BTMS {
             })
             selfOut += Number(decoded.fields[1])
           } else {
-            let ownerTag = a.outputs[i].tags.find(x => x.startsWith('owner '))
+            const ownerTag = a.outputs[i].tags.find(x => x.startsWith('owner '))
             if (ownerTag) {
               counterpartyOut = ownerTag.split(' ')[1]
             }
           }
         }
-        const amount = selfIn = selfOut
+        const amount = selfOut - selfIn
         return {
           date: a.created_at,
           amount,
