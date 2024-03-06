@@ -45,10 +45,10 @@
   },
   "dependencies": {
     "@babbage/sdk": "^0.4.47",
-    "@babbage/tokenator": "^0.2.10",
-    "authrite-js": "^0.4.9",
+    "@babbage/tokenator": "^0.2.11",
+    "authrite-js": "^0.4.10",
     "babbage-bsv": "^0.2.4",
-    "pushdrop": "^0.1.40",
+    "pushdrop": "^0.1.42",
     "typedoc": "^0.24.8"
   }
 }
