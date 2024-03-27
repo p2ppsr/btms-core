@@ -1,7 +1,16 @@
 import pushdrop from 'pushdrop'
-import { createAction, getTransactionOutputs, getPublicKey, submitDirectTransaction, listActions } from '@babbage/sdk'
+import { createAction, getTransactionOutputs, getPublicKey, submitDirectTransaction, listActions } from '@babbage/sdk-ts'
 import { Authrite } from 'authrite-js'
 import Tokenator from '@babbage/tokenator'
+
+interface Asset {
+  assetId: string
+  balance: number
+  name?: string
+  iconURL?: string
+  metadata?: string
+  isIncoming?: boolean
+}
 
 /**
  * The BTMS class provides an interface for managing and transacting assets using the Babbage SDK.
