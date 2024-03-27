@@ -11,7 +11,7 @@
   "scripts": {
     "test": "jest",
     "test:watch": "jest --watch",
-    "doc": "typedoc --plugin typedoc-plugin-markdown --out docs ./src/*.ts",
+    "doc": "ts2md",
     "lint": "ts-standard --fix .",
     "build": "tsc -p tsconfig.json",
     "prepublish": "npm run build"
@@ -40,7 +40,6 @@
     "eslint": "^8.34.0",
     "jest": "^26.6.3",
     "ts-standard": "^12.0.2",
-    "typedoc-plugin-markdown": "^3.15.4",
     "typescript": "^4.9.5"
   },
   "dependencies": {
@@ -49,6 +48,6 @@
     "authrite-js": "^0.4.12",
     "babbage-bsv": "^0.2.4",
     "pushdrop": "^0.1.42",
-    "typedoc": "^0.24.8"
+    "ts2md": "^0.2.0"
   }
 }

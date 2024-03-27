@@ -544,7 +544,7 @@ export class BTMS {
    * @param {boolean} includeEnvelope - Include the envelope in the result.
    * @returns {Promise<any[]>} Returns a promise that resolves to an array of token objects.
    */
-  async getTokens(assetId: string, includeEnvelope: boolean = true) {
+  async getTokens(assetId: string, includeEnvelope = true) {
     const tokens = await getTransactionOutputs({
       basket: this.basket,
       spendable: true,

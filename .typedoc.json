@@ -1,9 +1,0 @@
-{
-    "exclude": ["**/node_modules/**", "**/*.spec.ts"],
-    "mode": "modules",
-    "out": "./docs",
-    "theme": "markdown",
-    "ignoreCompilerErrors": "true",
-    "plugin": "none",
-    "listInvalidSymbolLinks": "true"
-}
