@@ -42,7 +42,7 @@ export class BTMS {
     async listIncomingPayments(assetId: string): Promise<any[]> 
     async acceptIncomingPayment(assetId: string, payment: any): Promise<boolean> 
     async refundIncomingTransaction(assetId: string, payment: any): Promise<boolean> 
-    async getTokens(assetId: string, includeEnvelope: boolean = true) 
+    async getTokens(assetId: string, includeEnvelope = true) 
     async getBalance(assetId: string, myTokens?: any[]): Promise<number> 
     async getTransactions(assetId: string, limit: number, offset: number): Promise<any[]> 
     async proveOwnership(assetId: string, amount: number, verifier: string): Promise<any> 
@@ -103,7 +103,7 @@ Argument Details
 Get all tokens for a given asset.
 
 ```ts
-async getTokens(assetId: string, includeEnvelope: boolean = true) 
+async getTokens(assetId: string, includeEnvelope = true) 
 ```
 
 Returns
