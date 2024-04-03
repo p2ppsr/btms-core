@@ -1,5 +1,5 @@
 import pushdrop from 'pushdrop'
-import { createAction, getTransactionOutputs, getPublicKey, submitDirectTransaction, listActions } from '@babbage/sdk-ts'
+import { createAction, getTransactionOutputs, getPublicKey, submitDirectTransaction, listActions, CreateActionResult, CreateActionOutput, CreateActionInput, GetTransactionOutputResult } from '@babbage/sdk-ts'
 import { Authrite } from 'authrite-js'
 import Tokenator from '@babbage/tokenator'
 
@@ -9,7 +9,35 @@ interface Asset {
   name?: string
   iconURL?: string
   metadata?: string
-  isIncoming?: boolean
+  incoming?: boolean
+  incomingAmount?: number
+  new?: boolean
+}
+
+interface TokenForRecipient {
+  txid: string
+  vout: number
+  amount: number
+  envelope: CreateActionResult
+  keyID: string
+  outputScript: string
+}
+
+interface SubmitResult {
+  status: 'auccess'
+  topics: Record<string, number[]>
+}
+
+interface IncomingPayment {
+  txid: string
+  vout: number
+  outputScript: string
+  amount: number
+  token: TokenForRecipient
+  sender: string
+  messageId: string
+  keyID: string
+  envelope: CreateActionResult
 }
 
 /**
@@ -60,13 +88,13 @@ export class BTMS {
     this.authrite = new Authrite()
   }
 
-  async listAssets(): Promise<any[]> {
+  async listAssets(): Promise<Asset[]> {
     const tokens = await getTransactionOutputs({
       basket: this.basket,
       spendable: true,
       includeEnvelope: false
     })
-    const assets = {}
+    const assets: Record<string, Asset> = {}
     for (const token of tokens) {
       const decoded = pushdrop.decode({
         script: token.outputScript,
@@ -87,7 +115,8 @@ export class BTMS {
         assets[assetId] = {
           ...parsedMetadata,
           balance: Number(decoded.fields[1]),
-          metadata: decoded.fields[2]
+          metadata: decoded.fields[2],
+          assetId
         }
       } else {
         assets[assetId].balance += Number(decoded.fields[1])
@@ -107,7 +136,7 @@ export class BTMS {
           script: token.outputScript,
           fieldFormat: 'utf8'
         })
-        let decodedAssetId = decodedToken.fields[0]
+        let decodedAssetId: string = decodedToken.fields[0]
         if (decodedAssetId === 'ISSUE') {
           decodedAssetId = `${token.txid}.${token.vout}`
         }
@@ -117,14 +146,15 @@ export class BTMS {
           if (!assets[decodedAssetId].incomingAmount) {
             assets[decodedAssetId].incomingAmount = amount
           } else {
-            assets[decodedAssetId].incomingAmount += amount
+            assets[decodedAssetId].incomingAmount = assets[decodedAssetId].incomingAmount as number + amount
           }
         } else {
           let parsedMetadata = {}
           try {
             parsedMetadata = JSON.parse(decodedToken.fields[2])
-          } catch (_) { }
+          } catch (_) {/* ignore */ }
           assets[decodedAssetId] = {
+            assetId: decodedAssetId,
             ...parsedMetadata,
             new: true,
             incoming: true,
@@ -138,12 +168,12 @@ export class BTMS {
       }
     }
 
-    return Object.entries(assets).map(([a, o]) => ({ ...o as object, assetId: a }))
+    return Object.values(assets)
   }
 
-  async issue(amount: number, name: string) {
+  async issue(amount: number, name: string): Promise<SubmitResult> {
     const keyID = this.getRandomKeyID()
-    const tokenScript = await pushdrop.create({
+    const tokenScript: string = await pushdrop.create({
       fields: [
         'ISSUE',
         String(amount),
@@ -177,7 +207,13 @@ export class BTMS {
    * @returns {Promise<any>} Returns a promise that resolves to a transaction action object.
    * @throws {Error} Throws an error if the sender does not have enough tokens.
    */
-  async send(assetId: string, recipient: string, sendAmount: number, disablePeerServ = false, onPaymentSent = (payment: any) => { }): Promise<any> {
+  async send(
+    assetId: string,
+    recipient: string,
+    sendAmount: number,
+    disablePeerServ = false,
+    onPaymentSent = (payment: TokenForRecipient) => { }
+  ): Promise<SubmitResult> {
     const myTokens = await this.getTokens(assetId, true)
     const myBalance = await this.getBalance(assetId, myTokens)
     // Make sure the amount is not more than what you have
@@ -195,7 +231,7 @@ export class BTMS {
     let parsedMetadata: { name: string } = { name: 'Token' }
     try {
       parsedMetadata = JSON.parse(metadata)
-    } catch (e) { }
+    } catch (e) {/* ignore */ }
 
     // Create redeem scripts for your tokens
     const inputs: any = {}
@@ -212,15 +248,15 @@ export class BTMS {
       if (!inputs[t.txid]) {
         inputs[t.txid] = {
           ...t.envelope,
-          inputs: typeof t.envelope.inputs === 'string'
-            ? JSON.parse(t.envelope.inputs)
-            : t.envelope.inputs,
-          mapiResponses: typeof t.envelope.mapiResponses === 'string'
+          inputs: typeof t.envelope?.inputs === 'string'
+            ? JSON.parse(t.envelope?.inputs)
+            : t.envelope?.inputs,
+          mapiResponses: typeof t.envelope?.mapiResponses === 'string'
             ? JSON.parse(t.envelope.mapiResponses)
-            : t.envelope.mapiResponses,
-          proof: typeof t.envelope.proof === 'string'
-            ? JSON.parse(t.envelope.proof)
-            : t.envelope.proof,
+            : t.envelope?.mapiResponses,
+          proof: typeof t.envelope?.proof === 'string'
+            ? JSON.parse(t.envelope?.proof)
+            : t.envelope?.proof,
           outputsToRedeem: [{
             index: t.vout,
             spendingDescription: `Redeeming ${parsedMetadata.name}`,
@@ -237,9 +273,9 @@ export class BTMS {
     }
 
     // Create outputs for the recipient and your own change
-    const outputs: any[] = []
+    const outputs: CreateActionOutput[] = []
     const recipientKeyID = this.getRandomKeyID()
-    const recipientScript = await pushdrop.create({
+    const recipientScript: string = await pushdrop.create({
       fields: [
         assetId,
         String(sendAmount),
@@ -297,7 +333,7 @@ export class BTMS {
       outputs
     })
 
-    const tokenForRecipient = {
+    const tokenForRecipient: TokenForRecipient = {
       txid: action.txid,
       vout: 0,
       amount: this.satoshis,
@@ -331,13 +367,13 @@ export class BTMS {
    * @param {string} assetId - The ID of the asset.
    * @returns {Promise<any[]>} Returns a promise that resolves to an array of payment objects.
    */
-  async listIncomingPayments(assetId: string): Promise<any[]> {
+  async listIncomingPayments(assetId: string): Promise<IncomingPayment[]> {
     const myIncomingMessages = await this.tokenator.listMessages({
       messageBox: this.messageBox
     })
-    const payments: any[] = []
+    const payments: IncomingPayment[] = []
     for (const message of myIncomingMessages) {
-      let parsedBody, token
+      let parsedBody, token: TokenForRecipient
       try {
         parsedBody = JSON.parse(JSON.parse(message.body))
         token = parsedBody.token
@@ -351,7 +387,7 @@ export class BTMS {
         }
         if (assetId !== decodedAssetId) continue
         const amount = Number(decodedToken.fields[1])
-        payments.push({
+        const newPayment = {
           ...token,
           txid: token.txid,
           vout: token.vout,
@@ -361,7 +397,8 @@ export class BTMS {
           sender: message.sender,
           messageId: message.messageId,
           keyID: token.keyID
-        })
+        }
+        payments.push(newPayment)
       } catch (e) {
         console.error('Error parsing incoming message', e)
       }
@@ -369,7 +406,7 @@ export class BTMS {
     return payments
   }
 
-  async acceptIncomingPayment(assetId: string, payment: any): Promise<boolean> {
+  async acceptIncomingPayment(assetId: string, payment: IncomingPayment): Promise<boolean> {
     // Verify the token is owned by the user
     const decodedToken = pushdrop.decode({
       script: payment.outputScript,
@@ -457,7 +494,7 @@ export class BTMS {
     return true
   }
 
-  async refundIncomingTransaction(assetId: string, payment: any): Promise<boolean> {
+  async refundIncomingTransaction(assetId: string, payment: IncomingPayment): Promise<SubmitResult> {
     // We can decode the first token to extract the metadata needed in the outputs
     const { fields: [, , metadata] } = pushdrop.decode({
       script: payment.outputScript,
@@ -465,7 +502,7 @@ export class BTMS {
     })
 
     // Create redeem scripts for your tokens
-    const inputs: any = {}
+    const inputs: Record<string, CreateActionInput> = {}
     const unlockingScript = await pushdrop.redeem({
       prevTxId: payment.txid,
       outputIndex: payment.vout,
@@ -483,9 +520,9 @@ export class BTMS {
       mapiResponses: typeof payment.envelope.mapiResponses === 'string'
         ? JSON.parse(payment.envelope.mapiResponses)
         : payment.envelope.mapiResponses,
-      proof: typeof payment.envelope.proof === 'string'
-        ? JSON.parse(payment.envelope.proof)
-        : payment.envelope.proof,
+      // proof: typeof payment.envelope.proof === 'string' // no proof ever, right?
+      //   ? JSON.parse(payment.envelope.proof)
+      //   : payment.envelope.proof,
       outputsToRedeem: [{
         index: payment.vout,
         unlockingScript
@@ -493,7 +530,7 @@ export class BTMS {
     }
 
     // Create outputs for the recipient and your own change
-    const outputs: any[] = []
+    const outputs: CreateActionOutput[] = []
     const refundKeyID = this.getRandomKeyID()
     const recipientScript = await pushdrop.create({
       fields: [
@@ -517,7 +554,7 @@ export class BTMS {
       outputs
     })
 
-    const tokenForRecipient = {
+    const tokenForRecipient: TokenForRecipient = {
       txid: action.txid,
       vout: 0,
       amount: this.satoshis,
@@ -553,7 +590,7 @@ export class BTMS {
    * @param {boolean} includeEnvelope - Include the envelope in the result.
    * @returns {Promise<any[]>} Returns a promise that resolves to an array of token objects.
    */
-  async getTokens(assetId: string, includeEnvelope = true) {
+  async getTokens(assetId: string, includeEnvelope = true): Promise<GetTransactionOutputResult[]> {
     const tokens = await getTransactionOutputs({
       basket: this.basket,
       spendable: true,
@@ -579,12 +616,12 @@ export class BTMS {
    * @param {any[]} myTokens - (Optional) An array of token objects owned by the caller.
    * @returns {Promise<number>} Returns a promise that resolves to the balance.
    */
-  async getBalance(assetId: string, myTokens?: any[]): Promise<number> {
+  async getBalance(assetId: string, myTokens?: GetTransactionOutputResult[]): Promise<number> {
     if (!Array.isArray(myTokens)) {
       myTokens = await this.getTokens(assetId, false)
     }
     let balance = 0
-    for (const x of myTokens!) {
+    for (const x of myTokens) {
       const t = pushdrop.decode({
         script: x.outputScript,
         fieldFormat: 'utf8'
@@ -600,7 +637,14 @@ export class BTMS {
     return balance
   }
 
-  async getTransactions(assetId: string, limit: number, offset: number): Promise<any[]> {
+  async getTransactions(assetId: string, limit: number, offset: number): Promise<{
+    transactions: {
+      date: string,
+      amount: number,
+      txid: string,
+      counterparty: string
+    }[]
+  }> {
     const actions = await listActions({
       label: assetId.replace('.', ' '),
       limit,
@@ -609,50 +653,51 @@ export class BTMS {
       includeBasket: true,
       includeTags: true
     })
-    if (Array.isArray(actions.transactions)) {
-      actions.transactions = actions.transactions.map(a => {
-        let selfIn = 0
-        let counterpartyIn = 'self'
-        for (let i = 0; i < a.inputs.length; i++) {
-          if (a.inputs[i].tags.some(x => x === 'owner self')) {
-            const decoded = pushdrop.decode({
-              script: Buffer.from(a.inputs[i].outputScript.data).toString('hex'),
-              fieldFormat: 'utf8'
-            })
-            selfIn += Number(decoded.fields[1])
-          } else {
-            const ownerTag = a.inputs[i].tags.find(x => x.startsWith('owner '))
-            if (ownerTag) {
-              counterpartyIn = ownerTag.split(' ')[1]
-            }
+    const txs = actions.transactions.map(a => {
+      let selfIn = 0
+      let counterpartyIn = 'self'
+      for (let i = 0; i < a.inputs.length; i++) {
+        if (a.inputs[i].tags.some(x => x === 'owner self')) {
+          const decoded = pushdrop.decode({
+            script: Buffer.from(a.inputs[i].outputScript.data).toString('hex'),
+            fieldFormat: 'utf8'
+          })
+          selfIn += Number(decoded.fields[1])
+        } else {
+          const ownerTag = a.inputs[i].tags.find(x => x.startsWith('owner '))
+          if (ownerTag) {
+            counterpartyIn = ownerTag.split(' ')[1]
           }
         }
-        let selfOut = 0
-        let counterpartyOut = 'self'
-        for (let i = 0; i < a.outputs.length; i++) {
-          if (a.outputs[i].tags.some(x => x === 'owner self')) {
-            const decoded = pushdrop.decode({
-              script: Buffer.from(a.outputs[i].outputScript.data).toString('hex'),
-              fieldFormat: 'utf8'
-            })
-            selfOut += Number(decoded.fields[1])
-          } else {
-            const ownerTag = a.outputs[i].tags.find(x => x.startsWith('owner '))
-            if (ownerTag) {
-              counterpartyOut = ownerTag.split(' ')[1]
-            }
+      }
+      let selfOut = 0
+      let counterpartyOut = 'self'
+      for (let i = 0; i < a.outputs.length; i++) {
+        if (a.outputs[i].tags.some(x => x === 'owner self')) {
+          const decoded = pushdrop.decode({
+            script: Buffer.from(a.outputs[i].outputScript.data).toString('hex'),
+            fieldFormat: 'utf8'
+          })
+          selfOut += Number(decoded.fields[1])
+        } else {
+          const ownerTag = a.outputs[i].tags.find(x => x.startsWith('owner '))
+          if (ownerTag) {
+            counterpartyOut = ownerTag.split(' ')[1]
           }
         }
-        const amount = selfOut - selfIn
-        return {
-          date: a.created_at,
-          amount,
-          txid: a.txid,
-          counterparty: amount < 0 ? counterpartyOut : counterpartyIn
-        }
-      })
+      }
+      const amount = selfOut - selfIn
+      return {
+        date: a.created_at,
+        amount,
+        txid: a.txid,
+        counterparty: amount < 0 ? counterpartyOut : counterpartyIn
+      }
+    })
+    return {
+      ...actions,
+      transactions: txs
     }
-    return actions
   }
 
   async proveOwnership(assetId: string, amount: number, verifier: string): Promise<any> {
@@ -681,10 +726,12 @@ export class BTMS {
       })
     })
 
-    return await result.json()
+    const json = await result.json()
+    console.log('find from overlay', json)
+    return json
   }
 
-  private async submitToOverlay(tx, topics = [this.topic]) {
+  private async submitToOverlay(tx, topics = [this.topic]): Promise<SubmitResult> {
     const result = await this.authrite.request(`${this.confederacyHost}/submit`, {
       method: 'post',
       headers: {
@@ -695,10 +742,12 @@ export class BTMS {
         topics
       })
     })
-    return await result.json()
+    const json = await result.json()
+    console.log('submit to overlay', json)
+    return json
   }
 
-  private getCounterpartyFromInstructions(i) {
+  private getCounterpartyFromInstructions(i): string {
     if (!i) {
       return 'self'
     }
@@ -708,7 +757,7 @@ export class BTMS {
     return i.sender
   }
 
-  private getKeyIDFromInstructions(i) {
+  private getKeyIDFromInstructions(i): string {
     if (!i) {
       return '1'
     }
@@ -718,7 +767,7 @@ export class BTMS {
     return i.keyID
   }
 
-  private getRandomKeyID() {
+  private getRandomKeyID(): string {
     // eslint-disable-next-line
     return require('crypto').randomBytes(32).toString('base64')
   }
