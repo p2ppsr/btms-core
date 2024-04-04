@@ -41,9 +41,9 @@ interface IncomingPayment {
 }
 
 /**
- * Verify Truthy: Verify that the possibly undefined value currently has a value.
+ * Verify that the possibly undefined value currently has a value.
  */
-function VT<T> (v: T | null | undefined, description?: string): T {
+function verifyTruthy<T> (v: T | null | undefined, description?: string): T {
   if (v == null) throw new Error(description ?? 'A truthy value is required.')
   return v
 }
@@ -664,9 +664,9 @@ export class BTMS {
     const txs = actions.transactions.map(a => {
       let selfIn = 0
       let counterpartyIn = 'self'
-      const inputs = VT(a.inputs)
+      const inputs = verifyTruthy(a.inputs)
       for (let i = 0; i < inputs.length; i++) {
-        const tags = VT(inputs[i].tags)
+        const tags = verifyTruthy(inputs[i].tags)
         if (tags.some(x => x === 'owner self')) {
           const decoded = pushdrop.decode({
             script: Buffer.from(inputs[i].outputScript).toString('hex'),
@@ -682,9 +682,9 @@ export class BTMS {
       }
       let selfOut = 0
       let counterpartyOut = 'self'
-      const outputs = VT(a.outputs)
+      const outputs = verifyTruthy(a.outputs)
       for (let i = 0; i < outputs.length; i++) {
-        const tags = VT(outputs[i].tags)
+        const tags = verifyTruthy(outputs[i].tags)
         if (tags.some(x => x === 'owner self')) {
           const decoded = pushdrop.decode({
             script: Buffer.from(outputs[i].outputScript).toString('hex'),
