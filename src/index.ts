@@ -41,6 +41,14 @@ interface IncomingPayment {
 }
 
 /**
+ * Verify Truthy: Verify that the possibly undefined value currently has a value.
+ */
+function VT<T> (v: T | null | undefined, description?: string): T {
+  if (v == null) throw new Error(description ?? 'A truthy value is required.')
+  return v
+}
+
+/**
  * The BTMS class provides an interface for managing and transacting assets using the Babbage SDK.
  * @class
  */
@@ -656,15 +664,17 @@ export class BTMS {
     const txs = actions.transactions.map(a => {
       let selfIn = 0
       let counterpartyIn = 'self'
-      for (let i = 0; i < a.inputs.length; i++) {
-        if (a.inputs[i].tags.some(x => x === 'owner self')) {
+      const inputs = VT(a.inputs)
+      for (let i = 0; i < inputs.length; i++) {
+        const tags = VT(inputs[i].tags)
+        if (tags.some(x => x === 'owner self')) {
           const decoded = pushdrop.decode({
-            script: Buffer.from(a.inputs[i].outputScript.data).toString('hex'),
+            script: Buffer.from(inputs[i].outputScript).toString('hex'),
             fieldFormat: 'utf8'
           })
           selfIn += Number(decoded.fields[1])
         } else {
-          const ownerTag = a.inputs[i].tags.find(x => x.startsWith('owner '))
+          const ownerTag = tags.find(x => x.startsWith('owner '))
           if (ownerTag) {
             counterpartyIn = ownerTag.split(' ')[1]
           }
@@ -672,15 +682,17 @@ export class BTMS {
       }
       let selfOut = 0
       let counterpartyOut = 'self'
-      for (let i = 0; i < a.outputs.length; i++) {
-        if (a.outputs[i].tags.some(x => x === 'owner self')) {
+      const outputs = VT(a.outputs)
+      for (let i = 0; i < outputs.length; i++) {
+        const tags = VT(outputs[i].tags)
+        if (tags.some(x => x === 'owner self')) {
           const decoded = pushdrop.decode({
-            script: Buffer.from(a.outputs[i].outputScript.data).toString('hex'),
+            script: Buffer.from(outputs[i].outputScript).toString('hex'),
             fieldFormat: 'utf8'
           })
           selfOut += Number(decoded.fields[1])
         } else {
-          const ownerTag = a.outputs[i].tags.find(x => x.startsWith('owner '))
+          const ownerTag = tags.find(x => x.startsWith('owner '))
           if (ownerTag) {
             counterpartyOut = ownerTag.split(' ')[1]
           }
