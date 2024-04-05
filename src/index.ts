@@ -1,5 +1,10 @@
 import pushdrop from 'pushdrop'
-import { createAction, getTransactionOutputs, getPublicKey, submitDirectTransaction, listActions, CreateActionResult, CreateActionOutput, CreateActionInput, GetTransactionOutputResult } from '@babbage/sdk-ts'
+import {
+  createAction, getTransactionOutputs, getPublicKey, submitDirectTransaction,
+  listActions, CreateActionResult, CreateActionOutput, CreateActionInput,
+  GetTransactionOutputResult, revealKeyLinkage, SpecificKeyLinkageResult,
+  decrypt
+} from '@babbage/sdk-ts'
 import { Authrite } from 'authrite-js'
 import Tokenator from '@babbage/tokenator'
 
@@ -40,10 +45,21 @@ interface IncomingPayment {
   envelope: CreateActionResult
 }
 
+interface OwnershipProof {
+  prover: string
+  verifier: string
+  assetId: string
+  amount: number
+  tokens: {
+    output: GetTransactionOutputResult
+    linkage: SpecificKeyLinkageResult
+  }[]
+}
+
 /**
  * Verify that the possibly undefined value currently has a value.
  */
-function verifyTruthy<T> (v: T | null | undefined, description?: string): T {
+function verifyTruthy<T>(v: T | null | undefined, description?: string): T {
   if (v == null) throw new Error(description ?? 'A truthy value is required.')
   return v
 }
@@ -712,15 +728,107 @@ export class BTMS {
     }
   }
 
-  async proveOwnership(assetId: string, amount: number, verifier: string): Promise<any> {
-    // Make use of new proveKeyLinkage Babbage SDK function
-    // TODO: implement this method
-    throw new Error('Not Implemented')
+  async proveOwnership(assetId: string, amount: number, verifier: string): Promise<OwnershipProof> {
+    // Get a list of tokens
+    const myTokens = await this.getTokens(assetId, false)
+    let amountProven = 0
+    const provenTokens: {
+      output: GetTransactionOutputResult;
+      linkage: SpecificKeyLinkageResult;
+    }[] = []
+    const myIdentityKey = await getPublicKey({ identityKey: true })
+    // Go through the list
+    for (const token of myTokens) {
+      // Obtain key linkage for each token
+      const parsedInstructions = JSON.parse(token.customInstructions as string)
+      const linkage = await revealKeyLinkage({
+        mode: 'specific',
+        counterparty: this.getCounterpartyFromInstructions(parsedInstructionss),
+        protocolID: this.protocolID,
+        keyID: this.getKeyIDFromInstructions(parsedInstructions),
+        verifier,
+        description: 'Prove token ownership'
+      })
+      provenTokens.push({
+        output: token,
+        linkage: linkage as SpecificKeyLinkageResult
+      })
+      // Increment the amount counter each time
+      const t = pushdrop.decode({
+        script: token.outputScript,
+        fieldFormat: 'utf8'
+      })
+      amountProven += Number(t.fields[1])
+      // Break if the amount counter goes above the amount to prove
+      if (amountProven > amount) break
+    }
+    // After the loop check the counter
+    // Error if we have not proven the full amount
+    if (amountProven < amount) {
+      throw new Error('User does not have amount of asset requested for ownership oroof.')
+    }
+    // Return the proof
+    return {
+      prover: myIdentityKey,
+      verifier,
+      tokens: provenTokens,
+      amount,
+      assetId
+    }
   }
 
-  async verifyOwnership(assetId: string, amount: number, prover: string, proof: any): Promise<boolean> {
-    // TODO: implement this method
-    throw new Error('Not Implemented')
+  async verifyOwnership(proof: OwnershipProof): Promise<boolean> {
+    // Keep count of amount proven
+    let amountProven = 0
+    // Go through all tokens
+    for (const token of proof.tokens) {
+      // Increment the amount counter each time
+      const t = pushdrop.decode({
+        script: token.outputScript,
+        fieldFormat: 'utf8'
+      })
+      amountProven += Number(t.fields[1])
+      // Ensure token linkage is verified for prover
+      const valid = await this.verifyLinkageForProver(token.linkage, t.lockingPublicKey)
+      if (!valid) {
+        throw new Error('Invalid key linkage for token prover.')
+      }
+      // Ensure the proof belongs to the prover
+      if (token.linkage.prover !== proof.prover) {
+        throw new Error('Prover tried to prove tokens that were not theirs.')
+      }
+      // Ensure token is on overlay
+      const resultFromOverlay = await this.findFromOverlay({
+        txid: token.output.txid,
+        vout: token.output.vout
+      })
+      if (resultFromOverlay.length < 1) {
+        throw new Error('Claimed token is not on the overlay.')
+      }
+    }
+    // Check amount in proof against total
+    // Error if amounts mismatch
+    if (amountProven !== proof.amount) {
+      throw new Error('Amount of tokens in proof not as claimed.')
+    }
+    // Return true as proof is valid
+    return true
+  }
+
+  private async verifyLinkageForProver(linkage: SpecificKeyLinkageResult, expectedKey: string): Promise<boolean> {
+    // Decrypt the linkage
+    const decryptedLinkage = await decrypt({
+      ciphertext: linkage.encryptedLinkage,
+      counterparty: linkage.prover,
+      protocolID: [2, 'specific key linkage revelation'],
+      keyID: `${linkage.protocolID[0]} ${linkage.protocolID[1]}`,
+      returnType: 'string'
+    })
+    // NOT YET FINISHED
+    console.log('Obtained decrypted linkage', decryptedLinkage)
+    // TODO: Add it to the prover's identity key with point addition
+    // TODO: Check the result against the expected key
+    return false // temp TODO
   }
 
   private async findFromOverlay(token: { txid: string, vout: number }): Promise<any> {
