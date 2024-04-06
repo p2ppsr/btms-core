@@ -91,6 +91,7 @@ export class BTMS {
   topic: string
   satoshis: number
   authrite: Authrite
+  privateKey: string | undefined
 
   /**
    * BTMS constructor.
@@ -110,7 +111,8 @@ export class BTMS {
     protocolID = 'tokens',
     basket = 'tokens',
     topic = 'tokens',
-    satoshis = 1000
+    satoshis = 1000,
+    privateKey?: string
   ) {
     this.confederacyHost = confederacyHost
     this.peerServHost = peerServHost
@@ -119,14 +121,24 @@ export class BTMS {
     this.basket = basket
     this.topic = topic
     this.satoshis = satoshis
-    this.tokenator = new Tokenator({
-      peerServHost
-    })
-    this.authrite = new Authrite()
+    const authriteParams: {
+      clientPrivateKey?: string
+    } = {}
+    const tokenatorParams: {
+      peerServHost: string,
+      clientPrivateKey?: string
+    } = { peerServHost }
+    if (privateKey) {
+      authriteParams.clientPrivateKey = privateKey
+      tokenatorParams.clientPrivateKey = privateKey
+    }
+    this.tokenator = new Tokenator(tokenatorParams)
+    this.authrite = new Authrite(authriteParams)
+    this.privateKey = privateKey
   }
 
   async listAssets(): Promise<Asset[]> {
-    const tokens = await getTransactionOutputs({
+    const tokens = await getTransactionOutputs({ // TODO: signing strategy
       basket: this.basket,
       spendable: true,
       includeEnvelope: false
@@ -210,7 +222,7 @@ export class BTMS {
 
   async issue(amount: number, name: string): Promise<SubmitResult> {
     const keyID = this.getRandomKeyID()
-    const tokenScript: string = await pushdrop.create({
+    const tokenScript: string = await pushdrop.create({ // TODO: signing strategy
       fields: [
         'ISSUE',
         String(amount),
@@ -219,7 +231,7 @@ export class BTMS {
       protocolID: this.protocolID,
       keyID
     })
-    const action = await createAction({
+    const action = await createAction({ // TODO: signing strategy
       description: `Issue ${amount} ${name} ${amount === 1 ? 'token' : 'tokens'}`,
       // labels: ??? // TODO: Label the issuance transaction with the issuance ID after it is created. Currently, issuance transactions do not show up.
       outputs: [{
@@ -258,7 +270,7 @@ export class BTMS {
       throw new Error('Not sufficient tokens.')
     }
 
-    const myIdentityKey = await getPublicKey({ identityKey: true })
+    const myIdentityKey = await getPublicKey({ identityKey: true }) // TODO: signing strategy
 
     // We can decode the first token to extract the metadata needed in the outputs
     const { fields: [, , metadata] } = pushdrop.decode({
@@ -273,7 +285,7 @@ export class BTMS {
     // Create redeem scripts for your tokens
     const inputs: Record<string, CreateActionInput> = {}
     for (const t of myTokens) {
-      const unlockingScript = await pushdrop.redeem({
+      const unlockingScript = await pushdrop.redeem({ // TODO: signing strategy
         prevTxId: t.txid,
         outputIndex: t.vout,
         lockingScript: t.outputScript,
@@ -312,7 +324,7 @@ export class BTMS {
     // Create outputs for the recipient and your own change
     const outputs: CreateActionOutput[] = []
     const recipientKeyID = this.getRandomKeyID()
-    const recipientScript: string = await pushdrop.create({
+    const recipientScript: string = await pushdrop.create({ // TODO: signing strategy
       fields: [
         assetId,
         String(sendAmount),
@@ -340,7 +352,7 @@ export class BTMS {
     let changeScript
     if (myBalance - sendAmount > 0) {
       const changeKeyID = this.getRandomKeyID()
-      changeScript = await pushdrop.create({
+      changeScript = await pushdrop.create({ // TODO: signing strategy
         fields: [
           assetId,
           String(myBalance - sendAmount),
@@ -363,7 +375,7 @@ export class BTMS {
       })
     }
     // Create the transaction
-    const action = await createAction({
+    const action = await createAction({ // TODO: signing strategy
       description: `Send ${sendAmount} ${parsedMetadata.name} to ${recipient}`,
       labels: [assetId.replace('.', ' ')],
       inputs,
@@ -460,7 +472,7 @@ export class BTMS {
       })
       throw new Error(`This token is for the wrong asset ID. You are indicating you want to accept a token with asset ID ${assetId} but this token has assetId ${decodedAssetId}`)
     }
-    const myKey = await getPublicKey({
+    const myKey = await getPublicKey({ // TODO: signing strategy
       protocolID: this.protocolID,
       keyID: payment.keyID || '1',
       counterparty: payment.sender,
@@ -502,7 +514,7 @@ export class BTMS {
     } catch (e) { }
 
     // Submit transaction
-    await submitDirectTransaction({
+    await submitDirectTransaction({ // TODO: signing strategy
       senderIdentityKey: payment.sender,
       note: `Receive ${decodedToken.fields[1]} ${parsedMetadata.name} from ${payment.sender}`,
       amount: this.satoshis,
@@ -540,7 +552,7 @@ export class BTMS {
 
     // Create redeem scripts for your tokens
     const inputs: Record<string, CreateActionInput> = {}
-    const unlockingScript = await pushdrop.redeem({
+    const unlockingScript = await pushdrop.redeem({ // TODO: signing strategy
       prevTxId: payment.txid,
       outputIndex: payment.vout,
       lockingScript: payment.outputScript,
@@ -569,7 +581,7 @@ export class BTMS {
     // Create outputs for the recipient and your own change
     const outputs: CreateActionOutput[] = []
     const refundKeyID = this.getRandomKeyID()
-    const recipientScript = await pushdrop.create({
+    const recipientScript = await pushdrop.create({ // TODO: signing strategy
       fields: [
         assetId,
         String(payment.amount),
@@ -584,7 +596,7 @@ export class BTMS {
       satoshis: this.satoshis
     })
     // Create the transaction
-    const action = await createAction({
+    const action = await createAction({ // TODO: signing strategy
       labels: [assetId.replace('.', ' ')],
       description: `Returning ${payment.amount} tokens to ${payment.sender}`,
       inputs,
@@ -628,7 +640,7 @@ export class BTMS {
    * @returns {Promise<any[]>} Returns a promise that resolves to an array of token objects.
    */
   async getTokens(assetId: string, includeEnvelope = true): Promise<GetTransactionOutputResult[]> {
-    const tokens = await getTransactionOutputs({
+    const tokens = await getTransactionOutputs({ // TODO: signing strategy
       basket: this.basket,
       spendable: true,
       includeEnvelope
@@ -682,7 +694,7 @@ export class BTMS {
       counterparty: string
     }[]
   }> {
-    const actions = await listActions({
+    const actions = await listActions({ // TODO: signing strategy
       label: assetId.replace('.', ' '),
       limit,
       offset,
@@ -754,7 +766,7 @@ export class BTMS {
     for (const token of myTokens) {
       // Obtain key linkage for each token
       const parsedInstructions = JSON.parse(token.customInstructions as string)
-      const linkage = await revealKeyLinkage({
+      const linkage = await revealKeyLinkage({ // TODO: signing strategy
         mode: 'specific',
         counterparty: this.getCounterpartyFromInstructions(parsedInstructions),
         protocolID: this.protocolID,
@@ -828,9 +840,38 @@ export class BTMS {
     return true
   }
 
+  /**
+   * Checks that an asset ID is in the correct format
+   * @param assetId Asset ID to validate
+   * @returns a boolean indicating asset ID validity
+   */
+  validateAssetId(assetId: string): boolean {
+    if (typeof assetId !== 'string') {
+      return false
+    }
+    const [first, second, third] = assetId.split('.')
+    if (typeof first !== 'string' || typeof second !== 'string') {
+      return false
+    }
+    if (typeof third !== 'undefined') {
+      return false
+    }
+    if (!/^[0-9a-fA-F]{64}$/.test(first)) {
+      return false
+    }
+    const secondNum = Number(second)
+    if (!Number.isInteger(secondNum)) {
+      return false
+    }
+    if (secondNum < 0) {
+      return false
+    }
+    return true
+  }
+
   private async verifyLinkageForProver(linkage: SpecificKeyLinkageResult, expectedKey: string): Promise<boolean> {
     // Decrypt the linkage
-    const decryptedLinkage = await decrypt({
+    const decryptedLinkage = await decrypt({ // TODO: signing strategy
       ciphertext: linkage.encryptedLinkage,
       counterparty: linkage.prover,
       protocolID: [2, `specific linkage revelation ${linkage.protocolID[0]} ${linkage.protocolID[1]}`],
