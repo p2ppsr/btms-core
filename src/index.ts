@@ -3,12 +3,15 @@ import {
   createAction, getTransactionOutputs, getPublicKey, submitDirectTransaction,
   listActions, CreateActionResult, CreateActionOutput, CreateActionInput,
   GetTransactionOutputResult, revealKeyLinkage, SpecificKeyLinkageResult,
-  decrypt,
-  EnvelopeApi
+  decrypt as SDKDecrypt, EnvelopeApi
 } from '@babbage/sdk-ts'
 import { Authrite } from 'authrite-js'
 import Tokenator from '@babbage/tokenator'
-import { BigNumber, Curve, PublicKey, Utils } from '@bsv/sdk'
+import { BigNumber, Curve, PrivateKey, PublicKey } from '@bsv/sdk'
+import { getPaymentPrivateKey } from 'sendover'
+import { decrypt as CWIDecrypt } from 'cwi-crypto'
+
+const ANYONE = '0000000000000000000000000000000000000000000000000000000000000001'
 
 export interface Asset {
   assetId: string
@@ -69,6 +72,16 @@ export interface OwnershipProof {
   }[]
 }
 
+interface MarketplaceEntry {
+  assetId: string
+  amount: number
+  seller: string
+  description: string
+  desiredAssets: Record<string, number>
+  ownershipProof: OwnershipProof
+  metadata: string
+}
+
 /**
  * Verify that the possibly undefined value currently has a value.
  */
@@ -85,41 +98,45 @@ export class BTMS {
   confederacyHost: string
   peerServHost: string
   tokenator: Tokenator
-  messageBox: string
+  tokensMessageBox: string
+  marketplaceMessageBox: string
   protocolID: string
   basket: string
-  topic: string
+  tokenTopic: string
   satoshis: number
   authrite: Authrite
   privateKey: string | undefined
+  marketplaceTopic: string
 
   /**
    * BTMS constructor.
    * @constructor
    * @param {string} confederacyHost - The confederacy host URL.
    * @param {string} peerServHost - The peer service host URL.
-   * @param {string} messageBox - The message box ID.
+   * @param {string} tokensMessageBox - The message box ID.
    * @param {string} protocolID - The protocol ID.
    * @param {string} basket - The asset basket ID.
-   * @param {string} topic - The topic associated with the asset.
+   * @param {string} tokensTopic - The topic associated with the asset.
    * @param {number} satoshis - The number of satoshis involved in transactions.
    */
   constructor(
     confederacyHost = 'https://confederacy.babbage.systems',
     peerServHost = 'https://peerserv.babbage.systems',
-    messageBox = 'tokens-box',
+    tokensMessageBox = 'tokens-box',
     protocolID = 'tokens',
     basket = 'tokens',
-    topic = 'tokens',
+    tokensTopic = 'tokens',
     satoshis = 1000,
-    privateKey?: string
+    privateKey?: string,
+    marketplaceMessageBox = 'marketplace',
+    marketplaceTopic = 'marketplace'
   ) {
     this.confederacyHost = confederacyHost
     this.peerServHost = peerServHost
-    this.messageBox = messageBox
+    this.tokensMessageBox = tokensMessageBox
     this.protocolID = protocolID
     this.basket = basket
-    this.topic = topic
+    this.tokenTopic = tokensTopic
     this.satoshis = satoshis
     const authriteParams: {
       clientPrivateKey?: string
@@ -135,6 +152,8 @@ export class BTMS {
     this.tokenator = new Tokenator(tokenatorParams)
     this.authrite = new Authrite(authriteParams)
     this.privateKey = privateKey
+    this.marketplaceMessageBox = marketplaceMessageBox
+    this.marketplaceTopic = marketplaceTopic
   }
 
   async listAssets(): Promise<Asset[]> {
@@ -174,7 +193,7 @@ export class BTMS {
 
     // Now, we need to add in any incoming assets that we may have.
     const myIncomingMessages = await this.tokenator.listMessages({
-      messageBox: this.messageBox
+      messageBox: this.tokensMessageBox
     })
     for (const message of myIncomingMessages) {
       let parsedBody, token
@@ -244,7 +263,7 @@ export class BTMS {
         })
       }]
     })
-    return await this.submitToOverlay(action)
+    return await this.submitToTokenOverlay(action)
   }
 
   /**
@@ -397,7 +416,7 @@ export class BTMS {
       // Send the transaction to the recipient
       await this.tokenator.sendMessage({
         recipient,
-        messageBox: this.messageBox,
+        messageBox: this.tokensMessageBox,
         body: JSON.stringify({
           token: tokenForRecipient
         })
@@ -407,7 +426,7 @@ export class BTMS {
       onPaymentSent(tokenForRecipient)
     } catch (e) { }
 
-    return await this.submitToOverlay(action)
+    return await this.submitToTokenOverlay(action)
   }
 
   /**
@@ -418,7 +437,7 @@ export class BTMS {
    */
   async listIncomingPayments(assetId: string): Promise<IncomingPayment[]> {
     const myIncomingMessages = await this.tokenator.listMessages({
-      messageBox: this.messageBox
+      messageBox: this.tokensMessageBox
     })
     const payments: IncomingPayment[] = []
     for (const message of myIncomingMessages) {
@@ -487,17 +506,17 @@ export class BTMS {
     }
 
     // Verify the token is on the overlay
-    const verified = await this.findFromOverlay(payment)
+    const verified = await this.findFromTokenOverlay(payment)
     if (verified.length < 1) {
       // Try to put it on the overlay
       try {
-        await this.submitToOverlay(payment)
+        await this.submitToTokenOverlay(payment)
       } catch (e) {
         console.error('ERROR RE-SUBMITTING IN ACCEPT', e)
       }
 
       // Check again
-      const verifiedAfterSubmit = await this.findFromOverlay(payment)
+      const verifiedAfterSubmit = await this.findFromTokenOverlay(payment)
       // If still not there, we cannot proceed.
       if (verifiedAfterSubmit) {
         // Not something we can hope to fix, we acknowledge the message
@@ -617,7 +636,7 @@ export class BTMS {
     // Send the transaction to the recipient
     await this.tokenator.sendMessage({
       recipient: payment.sender,
-      messageBox: this.messageBox,
+      messageBox: this.tokensMessageBox,
       body: JSON.stringify({
         token: tokenForRecipient
       })
@@ -629,7 +648,7 @@ export class BTMS {
       })
     }
 
-    return await this.submitToOverlay(action)
+    return await this.submitToTokenOverlay(action)
   }
 
   /**
@@ -802,7 +821,7 @@ export class BTMS {
     }
   }
 
-  async verifyOwnership(proof: OwnershipProof): Promise<boolean> {
+  async verifyOwnership(proof: OwnershipProof, useAnyoneKey = false): Promise<boolean> {
     // Keep count of amount proven
     let amountProven = 0
     // Go through all tokens
@@ -814,7 +833,7 @@ export class BTMS {
       })
       amountProven += Number(t.fields[1])
       // Ensure token linkage is verified for prover
-      const valid = await this.verifyLinkageForProver(token.linkage, t.lockingPublicKey)
+      const valid = await this.verifyLinkageForProver(token.linkage, t.lockingPublicKey, useAnyoneKey)
       if (!valid) {
         throw new Error('Invalid key linkage for token prover.')
       }
@@ -823,7 +842,7 @@ export class BTMS {
         throw new Error('Prover tried to prove tokens that were not theirs.')
       }
       // Ensure token is on overlay
-      const resultFromOverlay = await this.findFromOverlay({
+      const resultFromOverlay = await this.findFromTokenOverlay({
         txid: token.output.txid,
         vout: token.output.vout
       })
@@ -869,15 +888,181 @@ export class BTMS {
     return true
   }
 
-  private async verifyLinkageForProver(linkage: SpecificKeyLinkageResult, expectedKey: string): Promise<boolean> {
-    // Decrypt the linkage
-    const decryptedLinkage = await decrypt({ // TODO: signing strategy
-      ciphertext: linkage.encryptedLinkage,
-      counterparty: linkage.prover,
-      protocolID: [2, `specific linkage revelation ${linkage.protocolID[0]} ${linkage.protocolID[1]}`],
-      keyID: (linkage as unknown as { keyID: string }).keyID, // !!! ERRPR im base type, it DOES have keyID
-      returnType: 'Uint8Array'
+  /**
+   * Lists an asset on the marketplace for sale
+   * @param assetId The ID of the asset to list
+   * @param amount The amount you want to sell
+   * @param desiredAssets Assets you would desire to have in return so people can make you an offer
+   * @param description Marketplace listing description
+   * @returns Overlay network submission results
+   */
+  async listAssetForSale(
+    assetId: string,
+    amount: number,
+    desiredAssets: Record<string, number>,
+    description?: string
+  ): Promise<SubmitResult> {
+    // Validate desired assets
+    for (const key of Object.keys(desiredAssets)) {
+      const validAssetId = this.validateAssetId(key)
+      if (!validAssetId) {
+        const e = new Error('Assset ID in desired assets structure invalid')
+        console.error('Rejecting output for having an invalid asset ID in desired assets')
+        throw e
+      }
+    }
+    for (const val of Object.values(desiredAssets)) {
+      if (typeof val !== 'number' || val < -1 || !Number.isInteger(val)) {
+        const e = new Error('Amount in desired assets structure invalid')
+        console.error('Rejecting output for having an invalid amount in desired assets')
+        throw e
+      }
+    }
+
+    // Creat a proof
+    const anyonePub = new PrivateKey(ANYONE, 'hex').toPublicKey().toString()
+    const proof = await this.proveOwnership(assetId, amount, anyonePub)
+    // Compose a PushDrop token
+    const token = await pushdrop.create({
+      fields: [
+        Buffer.from(JSON.stringify(proof), 'utf8'),
+        Buffer.from(JSON.stringify(desiredAssets), 'utf8'),
+        Buffer.from(description || '', 'utf8')
+      ],
+      protocolID: 'marketplace',
+      keyID: '1',
+      counterparty: anyonePub,
+      ownedByCreator: true
     })
+    // Create a transaction
+    const action = await createAction({
+      description: 'List assets on the marketplace',
+      outputs: [{
+        satoshis: this.satoshis,
+        script: token
+      }]
+    })
+    // Send the transaction to the oerlay
+    return await this.submitToMarketplaceOverlay(action)
+  }
+
+  /**
+   * Returns an array of all marketplace entries
+   * @returns An array of all marketplace entries
+   */
+  async findAllAssetsForSale(): Promise<MarketplaceEntry[]> {
+    const assets = await this.findFromMarketplaceOverlay({ findAll: true })
+    const results: MarketplaceEntry[] = []
+    for (const asset of assets) {
+      const decoded = pushdrop.decode({
+        script: asset.outputScript,
+        returnType: 'buffer'
+      })
+      const parsedProof: OwnershipProof = JSON.parse(decoded.fields[0].toString('utf8'))
+      const parsedDesiredAssets = JSON.parse(decoded.fields[1].toString('utf8'))
+      const decodedAsset = pushdrop.redeem({
+        script: parsedProof.tokens[0].output.outputScript,
+        returnType: 'utf8'
+      })
+      results.push({
+        seller: parsedProof.prover,
+        amount: parsedProof.amount,
+        description: decoded.fields[2] ? decoded.fields[2].toString('utf8') : '',
+        desiredAssets: parsedDesiredAssets,
+        ownershipProof: parsedProof,
+        assetId: parsedProof.assetId,
+        metadata: decodedAsset.fields[2].toString('utf8')
+      })
+    }
+    return results
+  }
+
+  async makeOffer(entry: MarketplaceEntry, assetId: string, amount: number): Promise<void> {
+    // Verify the assets are still available
+    const verified = await this.verifyOwnership(entry.ownershipProof, true)
+    if (!verified) {
+      throw new Error('Item is no longer for sale.')
+    }
+    // Compose a proof of our assets for the seller
+    const buyerProof = await this.proveOwnership(assetId, amount, entry.seller)
+    const decodedBuyerAsset = pushdrop.redeem({
+      script: buyerProof.tokens[0].output.outputScript,
+      returnType: 'utf8'
+    })
+    const metadata = decodedBuyerAsset.fields[2].toString('utf8')
+    // Create a conditionally signed transaction paying the seller's assets to us
+    const desiredBuyerKeyID = this.getRandomKeyID()
+    const desiredBuyerScript = await pushdrop.create({
+      fields: [
+        Buffer.from(entry.assetId, 'utf8'),
+        Buffer.from(String(entry.amount), 'utf8'),
+        Buffer.from(entry.metadata, 'utf8')
+      ],
+      protocolID: this.protocolID,
+      keyID: desiredBuyerKeyID,
+      counterparty: entry.seller,
+      ownedByCreator: true
+    })
+    const desiredSellerKeyID = this.getRandomKeyID()
+    const desiredSellerScript = await pushdrop.create({
+      fields: [
+        Buffer.from(assetId, 'utf8'),
+        Buffer.from(String(amount), 'utf8'),
+        Buffer.from(metadata, 'utf8')
+      ],
+      protocolID: this.protocolID,
+      keyID: desiredSellerKeyID,
+      counterparty: entry.seller,
+      ownedByCreator: false
+    })
+    // TODO: Go through all seller inputs and add them to the list
+    // TODO: Go through all buyer inputs and sign them conditionally
+    const outputs = [{
+      script: desiredBuyerScript,
+      satoshis: this.satoshis
+    }, {
+      script: desiredSellerScript,
+      satoshis: this.satoshis
+    }] // TODO: Buyer and seller may both want change. Currently this is not implemented.
+    const templateToSign = await createAction({
+      inputs: {},
+      outputs,
+      description: 'Propose an asset exchange'
+    })
+
+    // Send the proof to the seller
+  }
+
+  private async verifyLinkageForProver(linkage: SpecificKeyLinkageResult, expectedKey: string, useAnyoneKey = false): Promise<boolean> {
+    // Decrypt the linkage
+    let decryptedLinkage: Uint8Array
+    if (this.privateKey || useAnyoneKey) {
+      // derive the decryption key
+      const derivedKey = getPaymentPrivateKey({
+        recipientPrivateKey: useAnyoneKey ? ANYONE : this.privateKey,
+        senderPublicKey: linkage.prover,
+        invoiceNumber: `${linkage.protocolID[0]}-${linkage.protocolID[1]}-${(linkage as unknown as { keyID: string }).keyID}`,
+        returnType: 'hex'
+      })
+      const derivedCryptoKey = await crypto.subtle.importKey(
+        'raw',
+        Uint8Array.from(Buffer.from(derivedKey, 'hex')),
+        { name: 'AES-GCM' },
+        false,
+        ['decrypt']
+      )
+      // decrypt the value
+      decryptedLinkage = CWIDecrypt(linkage.encryptedLinkage, derivedCryptoKey, 'string')
+      console.log('Decrypted linkage', decryptedLinkage)
+    } else {
+      decryptedLinkage = await SDKDecrypt({
+        ciphertext: linkage.encryptedLinkage,
+        counterparty: linkage.prover,
+        protocolID: [2, `specific linkage revelation ${linkage.protocolID[0]} ${linkage.protocolID[1]}`],
+        keyID: (linkage as unknown as { keyID: string }).keyID, // !!! ERRPR im base type, it DOES have keyID
+        returnType: 'Uint8Array'
+      }) as Uint8Array
+    }
     // Add it to the prover's identity key with point addition
     const curve = new Curve()
     const linkagePoint = curve.g.mul(
@@ -893,7 +1078,7 @@ export class BTMS {
     return false
   }
 
-  private async findFromOverlay(token: { txid: string, vout: number }): Promise<OverlaySearchResult[]> {
+  private async findFromTokenOverlay(token: { txid: string, vout: number }): Promise<OverlaySearchResult[]> {
     const result = await this.authrite.request(`${this.confederacyHost}/lookup`, {
       method: 'post',
       headers: {
@@ -912,7 +1097,45 @@ export class BTMS {
     return json
   }
 
-  private async submitToOverlay(tx, topics = [this.topic]): Promise<SubmitResult> {
+  private async findFromMarketplaceOverlay(token: {
+    txid?: string,
+    vout?: number,
+    findAll?: boolean,
+    assetId?: string,
+    seller?: string
+  }): Promise<OverlaySearchResult[]> {
+    const result = await this.authrite.request(`${this.confederacyHost}/lookup`, {
+      method: 'post',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        provider: 'marketplace',
+        query: token
+      })
+    })
+
+    const json = await result.json()
+    return json
+  }
+
+  private async submitToTokenOverlay(tx, topics = [this.tokenTopic]): Promise<SubmitResult> {
+    const result = await this.authrite.request(`${this.confederacyHost}/submit`, {
+      method: 'post',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        ...tx,
+        topics
+      })
+    })
+    const json = await result.json()
+    console.log('submit to overlay', json)
+    return json
+  }
+
+  private async submitToMarketplaceOverlay(tx, topics = [this.marketplaceTopic]): Promise<SubmitResult> {
     const result = await this.authrite.request(`${this.confederacyHost}/submit`, {
       method: 'post',
       headers: {
