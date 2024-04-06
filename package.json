@@ -1,6 +1,6 @@
 {
   "name": "btms-core",
-  "version": "0.2.10",
+  "version": "0.2.14",
   "description": "Tools for creating and managing UTXO-based tokens",
   "main": "./out/src/index.js",
   "types": "./out/src/index.d.ts",
@@ -48,7 +48,7 @@
     "@bsv/sdk": "^1.0.15",
     "authrite-js": "^0.4.12",
     "babbage-bsv": "^0.2.4",
-    "pushdrop": "^0.1.42",
+    "pushdrop": "^0.1.44",
     "ts2md": "^0.2.0"
   }
 }
