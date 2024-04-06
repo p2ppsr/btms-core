@@ -36,17 +36,24 @@ export class BTMS {
     satoshis: number;
     authrite: Authrite;
     constructor(confederacyHost = "https://confederacy.babbage.systems", peerServHost = "https://peerserv.babbage.systems", messageBox = "tokens-box", protocolID = "tokens", basket = "tokens", topic = "tokens", satoshis = 1000) 
-    async listAssets(): Promise<any[]> 
-    async issue(amount: number, name: string) 
-    async send(assetId: string, recipient: string, sendAmount: number, disablePeerServ = false, onPaymentSent = (payment: any) => { }): Promise<any> 
-    async listIncomingPayments(assetId: string): Promise<any[]> 
-    async acceptIncomingPayment(assetId: string, payment: any): Promise<boolean> 
-    async refundIncomingTransaction(assetId: string, payment: any): Promise<boolean> 
-    async getTokens(assetId: string, includeEnvelope = true) 
-    async getBalance(assetId: string, myTokens?: any[]): Promise<number> 
-    async getTransactions(assetId: string, limit: number, offset: number): Promise<any[]> 
-    async proveOwnership(assetId: string, amount: number, verifier: string): Promise<any> 
-    async verifyOwnership(assetId: string, amount: number, prover: string, proof: any): Promise<boolean> 
+    async listAssets(): Promise<Asset[]> 
+    async issue(amount: number, name: string): Promise<SubmitResult> 
+    async send(assetId: string, recipient: string, sendAmount: number, disablePeerServ = false, onPaymentSent = (payment: TokenForRecipient) => { }): Promise<SubmitResult> 
+    async listIncomingPayments(assetId: string): Promise<IncomingPayment[]> 
+    async acceptIncomingPayment(assetId: string, payment: IncomingPayment): Promise<boolean> 
+    async refundIncomingTransaction(assetId: string, payment: IncomingPayment): Promise<SubmitResult> 
+    async getTokens(assetId: string, includeEnvelope = true): Promise<GetTransactionOutputResult[]> 
+    async getBalance(assetId: string, myTokens?: GetTransactionOutputResult[]): Promise<number> 
+    async getTransactions(assetId: string, limit: number, offset: number): Promise<{
+        transactions: {
+            date: string;
+            amount: number;
+            txid: string;
+            counterparty: string;
+        }[];
+    }> 
+    async proveOwnership(assetId: string, amount: number, verifier: string): Promise<OwnershipProof> 
+    async verifyOwnership(proof: OwnershipProof): Promise<boolean> 
 }
 ```
 
@@ -84,7 +91,7 @@ Argument Details
 Get the balance of a given asset.
 
 ```ts
-async getBalance(assetId: string, myTokens?: any[]): Promise<number> 
+async getBalance(assetId: string, myTokens?: GetTransactionOutputResult[]): Promise<number> 
 ```
 
 Returns
@@ -103,7 +110,7 @@ Argument Details
 Get all tokens for a given asset.
 
 ```ts
-async getTokens(assetId: string, includeEnvelope = true) 
+async getTokens(assetId: string, includeEnvelope = true): Promise<GetTransactionOutputResult[]> 
 ```
 
 Returns
@@ -122,7 +129,7 @@ Argument Details
 List incoming payments for a given asset.
 
 ```ts
-async listIncomingPayments(assetId: string): Promise<any[]> 
+async listIncomingPayments(assetId: string): Promise<IncomingPayment[]> 
 ```
 
 Returns
@@ -139,7 +146,7 @@ Argument Details
 Send tokens to a recipient.
 
 ```ts
-async send(assetId: string, recipient: string, sendAmount: number, disablePeerServ = false, onPaymentSent = (payment: any) => { }): Promise<any> 
+async send(assetId: string, recipient: string, sendAmount: number, disablePeerServ = false, onPaymentSent = (payment: TokenForRecipient) => { }): Promise<SubmitResult> 
 ```
 
 Returns

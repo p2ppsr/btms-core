@@ -1,7 +1,81 @@
 import pushdrop from 'pushdrop'
-import { createAction, getTransactionOutputs, getPublicKey, submitDirectTransaction, listActions } from '@babbage/sdk'
+import {
+  createAction, getTransactionOutputs, getPublicKey, submitDirectTransaction,
+  listActions, CreateActionResult, CreateActionOutput, CreateActionInput,
+  GetTransactionOutputResult, revealKeyLinkage, SpecificKeyLinkageResult,
+  decrypt,
+  EnvelopeApi
+} from '@babbage/sdk-ts'
 import { Authrite } from 'authrite-js'
 import Tokenator from '@babbage/tokenator'
+import { BigNumber, Curve, PublicKey, Utils } from '@bsv/sdk'
+
+export interface Asset {
+  assetId: string
+  balance: number
+  name?: string
+  iconURL?: string
+  metadata?: string
+  incoming?: boolean
+  incomingAmount?: number
+  new?: boolean
+}
+
+export interface TokenForRecipient {
+  txid: string
+  vout: number
+  amount: number
+  envelope: CreateActionResult
+  keyID: string
+  outputScript: string
+}
+
+export interface SubmitResult {
+  status: 'auccess'
+  topics: Record<string, number[]>
+}
+
+export interface OverlaySearchResult {
+  inputs: string | null
+  mapiResponses: string | null
+  outputScript: string
+  proof: string | null
+  rawTx: string
+  satoshis: number
+  txid: string
+  vout: number
+}
+
+export interface IncomingPayment {
+  txid: string
+  vout: number
+  outputScript: string
+  amount: number
+  token: TokenForRecipient
+  sender: string
+  messageId: string
+  keyID: string
+  envelope: CreateActionResult
+}
+
+export interface OwnershipProof {
+  prover: string
+  verifier: string
+  assetId: string
+  amount: number
+  tokens: {
+    output: GetTransactionOutputResult
+    linkage: SpecificKeyLinkageResult
+  }[]
+}
+
+/**
+ * Verify that the possibly undefined value currently has a value.
+ */
+function verifyTruthy<T>(v: T | null | undefined, description?: string): T {
+  if (v == null) throw new Error(description ?? 'A truthy value is required.')
+  return v
+}
 
 /**
  * The BTMS class provides an interface for managing and transacting assets using the Babbage SDK.
@@ -51,13 +125,13 @@ export class BTMS {
     this.authrite = new Authrite()
   }
 
-  async listAssets(): Promise<any[]> {
+  async listAssets(): Promise<Asset[]> {
     const tokens = await getTransactionOutputs({
       basket: this.basket,
       spendable: true,
       includeEnvelope: false
     })
-    const assets = {}
+    const assets: Record<string, Asset> = {}
     for (const token of tokens) {
       const decoded = pushdrop.decode({
         script: token.outputScript,
@@ -78,7 +152,8 @@ export class BTMS {
         assets[assetId] = {
           ...parsedMetadata,
           balance: Number(decoded.fields[1]),
-          metadata: decoded.fields[2]
+          metadata: decoded.fields[2],
+          assetId
         }
       } else {
         assets[assetId].balance += Number(decoded.fields[1])
@@ -98,7 +173,7 @@ export class BTMS {
           script: token.outputScript,
           fieldFormat: 'utf8'
         })
-        let decodedAssetId = decodedToken.fields[0]
+        let decodedAssetId: string = decodedToken.fields[0]
         if (decodedAssetId === 'ISSUE') {
           decodedAssetId = `${token.txid}.${token.vout}`
         }
@@ -108,14 +183,15 @@ export class BTMS {
           if (!assets[decodedAssetId].incomingAmount) {
             assets[decodedAssetId].incomingAmount = amount
           } else {
-            assets[decodedAssetId].incomingAmount += amount
+            assets[decodedAssetId].incomingAmount = assets[decodedAssetId].incomingAmount as number + amount
           }
         } else {
           let parsedMetadata = {}
           try {
             parsedMetadata = JSON.parse(decodedToken.fields[2])
-          } catch (_) { }
+          } catch (_) {/* ignore */ }
           assets[decodedAssetId] = {
+            assetId: decodedAssetId,
             ...parsedMetadata,
             new: true,
             incoming: true,
@@ -129,12 +205,12 @@ export class BTMS {
       }
     }
 
-    return Object.entries(assets).map(([a, o]) => ({ ...o as object, assetId: a }))
+    return Object.values(assets)
   }
 
-  async issue(amount: number, name: string) {
+  async issue(amount: number, name: string): Promise<SubmitResult> {
     const keyID = this.getRandomKeyID()
-    const tokenScript = await pushdrop.create({
+    const tokenScript: string = await pushdrop.create({
       fields: [
         'ISSUE',
         String(amount),
@@ -168,7 +244,13 @@ export class BTMS {
    * @returns {Promise<any>} Returns a promise that resolves to a transaction action object.
    * @throws {Error} Throws an error if the sender does not have enough tokens.
    */
-  async send(assetId: string, recipient: string, sendAmount: number, disablePeerServ = false, onPaymentSent = (payment: any) => { }): Promise<any> {
+  async send(
+    assetId: string,
+    recipient: string,
+    sendAmount: number,
+    disablePeerServ = false,
+    onPaymentSent = (payment: TokenForRecipient) => { }
+  ): Promise<SubmitResult> {
     const myTokens = await this.getTokens(assetId, true)
     const myBalance = await this.getBalance(assetId, myTokens)
     // Make sure the amount is not more than what you have
@@ -186,10 +268,10 @@ export class BTMS {
     let parsedMetadata: { name: string } = { name: 'Token' }
     try {
       parsedMetadata = JSON.parse(metadata)
-    } catch (e) { }
+    } catch (e) {/* ignore */ }
 
     // Create redeem scripts for your tokens
-    const inputs: any = {}
+    const inputs: Record<string, CreateActionInput> = {}
     for (const t of myTokens) {
       const unlockingScript = await pushdrop.redeem({
         prevTxId: t.txid,
@@ -202,16 +284,16 @@ export class BTMS {
       })
       if (!inputs[t.txid]) {
         inputs[t.txid] = {
-          ...t.envelope,
-          inputs: typeof t.envelope.inputs === 'string'
-            ? JSON.parse(t.envelope.inputs)
-            : t.envelope.inputs,
-          mapiResponses: typeof t.envelope.mapiResponses === 'string'
+          ...t.envelope as EnvelopeApi,
+          inputs: typeof t.envelope?.inputs === 'string'
+            ? JSON.parse(t.envelope?.inputs)
+            : t.envelope?.inputs,
+          mapiResponses: typeof t.envelope?.mapiResponses === 'string'
             ? JSON.parse(t.envelope.mapiResponses)
-            : t.envelope.mapiResponses,
-          proof: typeof t.envelope.proof === 'string'
-            ? JSON.parse(t.envelope.proof)
-            : t.envelope.proof,
+            : t.envelope?.mapiResponses,
+          proof: typeof t.envelope?.proof === 'string'
+            ? JSON.parse(t.envelope?.proof)
+            : t.envelope?.proof,
           outputsToRedeem: [{
             index: t.vout,
             spendingDescription: `Redeeming ${parsedMetadata.name}`,
@@ -228,9 +310,9 @@ export class BTMS {
     }
 
     // Create outputs for the recipient and your own change
-    const outputs: any[] = []
+    const outputs: CreateActionOutput[] = []
     const recipientKeyID = this.getRandomKeyID()
-    const recipientScript = await pushdrop.create({
+    const recipientScript: string = await pushdrop.create({
       fields: [
         assetId,
         String(sendAmount),
@@ -288,7 +370,7 @@ export class BTMS {
       outputs
     })
 
-    const tokenForRecipient = {
+    const tokenForRecipient: TokenForRecipient = {
       txid: action.txid,
       vout: 0,
       amount: this.satoshis,
@@ -322,13 +404,13 @@ export class BTMS {
    * @param {string} assetId - The ID of the asset.
    * @returns {Promise<any[]>} Returns a promise that resolves to an array of payment objects.
    */
-  async listIncomingPayments(assetId: string): Promise<any[]> {
+  async listIncomingPayments(assetId: string): Promise<IncomingPayment[]> {
     const myIncomingMessages = await this.tokenator.listMessages({
       messageBox: this.messageBox
     })
-    const payments: any[] = []
+    const payments: IncomingPayment[] = []
     for (const message of myIncomingMessages) {
-      let parsedBody, token
+      let parsedBody, token: TokenForRecipient
       try {
         parsedBody = JSON.parse(JSON.parse(message.body))
         token = parsedBody.token
@@ -342,7 +424,7 @@ export class BTMS {
         }
         if (assetId !== decodedAssetId) continue
         const amount = Number(decodedToken.fields[1])
-        payments.push({
+        const newPayment = {
           ...token,
           txid: token.txid,
           vout: token.vout,
@@ -352,7 +434,8 @@ export class BTMS {
           sender: message.sender,
           messageId: message.messageId,
           keyID: token.keyID
-        })
+        }
+        payments.push(newPayment)
       } catch (e) {
         console.error('Error parsing incoming message', e)
       }
@@ -360,7 +443,7 @@ export class BTMS {
     return payments
   }
 
-  async acceptIncomingPayment(assetId: string, payment: any): Promise<boolean> {
+  async acceptIncomingPayment(assetId: string, payment: IncomingPayment): Promise<boolean> {
     // Verify the token is owned by the user
     const decodedToken = pushdrop.decode({
       script: payment.outputScript,
@@ -448,7 +531,7 @@ export class BTMS {
     return true
   }
 
-  async refundIncomingTransaction(assetId: string, payment: any): Promise<boolean> {
+  async refundIncomingTransaction(assetId: string, payment: IncomingPayment): Promise<SubmitResult> {
     // We can decode the first token to extract the metadata needed in the outputs
     const { fields: [, , metadata] } = pushdrop.decode({
       script: payment.outputScript,
@@ -456,7 +539,7 @@ export class BTMS {
     })
 
     // Create redeem scripts for your tokens
-    const inputs: any = {}
+    const inputs: Record<string, CreateActionInput> = {}
     const unlockingScript = await pushdrop.redeem({
       prevTxId: payment.txid,
       outputIndex: payment.vout,
@@ -474,9 +557,9 @@ export class BTMS {
       mapiResponses: typeof payment.envelope.mapiResponses === 'string'
         ? JSON.parse(payment.envelope.mapiResponses)
         : payment.envelope.mapiResponses,
-      proof: typeof payment.envelope.proof === 'string'
-        ? JSON.parse(payment.envelope.proof)
-        : payment.envelope.proof,
+      // proof: typeof payment.envelope.proof === 'string' // no proof ever, right?
+      //   ? JSON.parse(payment.envelope.proof)
+      //   : payment.envelope.proof,
       outputsToRedeem: [{
         index: payment.vout,
         unlockingScript
@@ -484,7 +567,7 @@ export class BTMS {
     }
 
     // Create outputs for the recipient and your own change
-    const outputs: any[] = []
+    const outputs: CreateActionOutput[] = []
     const refundKeyID = this.getRandomKeyID()
     const recipientScript = await pushdrop.create({
       fields: [
@@ -508,7 +591,7 @@ export class BTMS {
       outputs
     })
 
-    const tokenForRecipient = {
+    const tokenForRecipient: TokenForRecipient = {
       txid: action.txid,
       vout: 0,
       amount: this.satoshis,
@@ -544,7 +627,7 @@ export class BTMS {
    * @param {boolean} includeEnvelope - Include the envelope in the result.
    * @returns {Promise<any[]>} Returns a promise that resolves to an array of token objects.
    */
-  async getTokens(assetId: string, includeEnvelope = true) {
+  async getTokens(assetId: string, includeEnvelope = true): Promise<GetTransactionOutputResult[]> {
     const tokens = await getTransactionOutputs({
       basket: this.basket,
       spendable: true,
@@ -570,12 +653,12 @@ export class BTMS {
    * @param {any[]} myTokens - (Optional) An array of token objects owned by the caller.
    * @returns {Promise<number>} Returns a promise that resolves to the balance.
    */
-  async getBalance(assetId: string, myTokens?: any[]): Promise<number> {
+  async getBalance(assetId: string, myTokens?: GetTransactionOutputResult[]): Promise<number> {
     if (!Array.isArray(myTokens)) {
       myTokens = await this.getTokens(assetId, false)
     }
     let balance = 0
-    for (const x of myTokens!) {
+    for (const x of myTokens) {
       const t = pushdrop.decode({
         script: x.outputScript,
         fieldFormat: 'utf8'
@@ -591,7 +674,14 @@ export class BTMS {
     return balance
   }
 
-  async getTransactions(assetId: string, limit: number, offset: number): Promise<any[]> {
+  async getTransactions(assetId: string, limit: number, offset: number): Promise<{
+    transactions: {
+      date: string,
+      amount: number,
+      txid: string,
+      counterparty: string
+    }[]
+  }> {
     const actions = await listActions({
       label: assetId.replace('.', ' '),
       limit,
@@ -600,64 +690,169 @@ export class BTMS {
       includeBasket: true,
       includeTags: true
     })
-    if (Array.isArray(actions.transactions)) {
-      actions.transactions = actions.transactions.map(a => {
-        let selfIn = 0
-        let counterpartyIn = 'self'
-        for (let i = 0; i < a.inputs.length; i++) {
-          if (a.inputs[i].tags.some(x => x === 'owner self')) {
-            const decoded = pushdrop.decode({
-              script: Buffer.from(a.inputs[i].outputScript.data).toString('hex'),
-              fieldFormat: 'utf8'
-            })
-            selfIn += Number(decoded.fields[1])
-          } else {
-            const ownerTag = a.inputs[i].tags.find(x => x.startsWith('owner '))
-            if (ownerTag) {
-              counterpartyIn = ownerTag.split(' ')[1]
-            }
+    const txs = actions.transactions.map(a => {
+      let selfIn = 0
+      let counterpartyIn = 'self'
+      const inputs = verifyTruthy(a.inputs)
+      for (let i = 0; i < inputs.length; i++) {
+        const tags = verifyTruthy(inputs[i].tags)
+        if (tags.some(x => x === 'owner self')) {
+          const decoded = pushdrop.decode({
+            script: Buffer.from(inputs[i].outputScript).toString('hex'),
+            fieldFormat: 'utf8'
+          })
+          selfIn += Number(decoded.fields[1])
+        } else {
+          const ownerTag = tags.find(x => x.startsWith('owner '))
+          if (ownerTag) {
+            counterpartyIn = ownerTag.split(' ')[1]
           }
         }
-        let selfOut = 0
-        let counterpartyOut = 'self'
-        for (let i = 0; i < a.outputs.length; i++) {
-          if (a.outputs[i].tags.some(x => x === 'owner self')) {
-            const decoded = pushdrop.decode({
-              script: Buffer.from(a.outputs[i].outputScript.data).toString('hex'),
-              fieldFormat: 'utf8'
-            })
-            selfOut += Number(decoded.fields[1])
-          } else {
-            const ownerTag = a.outputs[i].tags.find(x => x.startsWith('owner '))
-            if (ownerTag) {
-              counterpartyOut = ownerTag.split(' ')[1]
-            }
+      }
+      let selfOut = 0
+      let counterpartyOut = 'self'
+      const outputs = verifyTruthy(a.outputs)
+      for (let i = 0; i < outputs.length; i++) {
+        const tags = verifyTruthy(outputs[i].tags)
+        if (tags.some(x => x === 'owner self')) {
+          const decoded = pushdrop.decode({
+            script: Buffer.from(outputs[i].outputScript).toString('hex'),
+            fieldFormat: 'utf8'
+          })
+          selfOut += Number(decoded.fields[1])
+        } else {
+          const ownerTag = tags.find(x => x.startsWith('owner '))
+          if (ownerTag) {
+            counterpartyOut = ownerTag.split(' ')[1]
           }
         }
-        const amount = selfOut - selfIn
-        return {
-          date: a.created_at,
-          amount,
-          txid: a.txid,
-          counterparty: amount < 0 ? counterpartyOut : counterpartyIn
-        }
-      })
+      }
+      const amount = selfOut - selfIn
+      return {
+        date: a.created_at,
+        amount,
+        txid: a.txid,
+        counterparty: amount < 0 ? counterpartyOut : counterpartyIn
+      }
+    })
+    return {
+      ...actions,
+      transactions: txs
     }
-    return actions
   }
 
-  async proveOwnership(assetId: string, amount: number, verifier: string): Promise<any> {
-    // Make use of new proveKeyLinkage Babbage SDK function
-    // TODO: implement this method
-    throw new Error('Not Implemented')
+  async proveOwnership(assetId: string, amount: number, verifier: string): Promise<OwnershipProof> {
+    // Get a list of tokens
+    const myTokens = await this.getTokens(assetId, true)
+    let amountProven = 0
+    const provenTokens: {
+      output: GetTransactionOutputResult;
+      linkage: SpecificKeyLinkageResult;
+    }[] = []
+    const myIdentityKey = await getPublicKey({ identityKey: true })
+    // Go through the list
+    for (const token of myTokens) {
+      // Obtain key linkage for each token
+      const parsedInstructions = JSON.parse(token.customInstructions as string)
+      const linkage = await revealKeyLinkage({
+        mode: 'specific',
+        counterparty: this.getCounterpartyFromInstructions(parsedInstructions),
+        protocolID: this.protocolID,
+        keyID: this.getKeyIDFromInstructions(parsedInstructions),
+        verifier,
+        description: 'Prove token ownership'
+      })
+      provenTokens.push({
+        output: token,
+        linkage: linkage as SpecificKeyLinkageResult
+      })
+      // Increment the amount counter each time
+      const t = pushdrop.decode({
+        script: token.outputScript,
+        fieldFormat: 'utf8'
+      })
+      amountProven += Number(t.fields[1])
+      // Break if the amount counter goes above the amount to prove
+      if (amountProven > amount) break
+    }
+    // After the loop check the counter
+    // Error if we have not proven the full amount
+    if (amountProven < amount) {
+      throw new Error('User does not have amount of asset requested for ownership oroof.')
+    }
+    // Return the proof
+    return {
+      prover: myIdentityKey,
+      verifier,
+      tokens: provenTokens,
+      amount,
+      assetId
+    }
   }
 
-  async verifyOwnership(assetId: string, amount: number, prover: string, proof: any): Promise<boolean> {
-    // TODO: implement this method
-    throw new Error('Not Implemented')
+  async verifyOwnership(proof: OwnershipProof): Promise<boolean> {
+    // Keep count of amount proven
+    let amountProven = 0
+    // Go through all tokens
+    for (const token of proof.tokens) {
+      // Increment the amount counter each time
+      const t = pushdrop.decode({
+        script: token.output.outputScript,
+        fieldFormat: 'utf8'
+      })
+      amountProven += Number(t.fields[1])
+      // Ensure token linkage is verified for prover
+      const valid = await this.verifyLinkageForProver(token.linkage, t.lockingPublicKey)
+      if (!valid) {
+        throw new Error('Invalid key linkage for token prover.')
+      }
+      // Ensure the proof belongs to the prover
+      if (token.linkage.prover !== proof.prover) {
+        throw new Error('Prover tried to prove tokens that were not theirs.')
+      }
+      // Ensure token is on overlay
+      const resultFromOverlay = await this.findFromOverlay({
+        txid: token.output.txid,
+        vout: token.output.vout
+      })
+      if (resultFromOverlay.length < 1) {
+        throw new Error('Claimed token is not on the overlay.')
+      }
+    }
+    // Check amount in proof against total
+    // Error if amounts mismatch
+    if (amountProven !== proof.amount) {
+      throw new Error('Amount of tokens in proof not as claimed.')
+    }
+    // Return true as proof is valid
+    return true
   }
 
-  private async findFromOverlay(token: { txid: string, vout: number }): Promise<any> {
+  private async verifyLinkageForProver(linkage: SpecificKeyLinkageResult, expectedKey: string): Promise<boolean> {
+    // Decrypt the linkage
+    const decryptedLinkage = await decrypt({
+      ciphertext: linkage.encryptedLinkage,
+      counterparty: linkage.prover,
+      protocolID: [2, `specific linkage revelation ${linkage.protocolID[0]} ${linkage.protocolID[1]}`],
+      keyID: (linkage as unknown as { keyID: string }).keyID, // !!! ERRPR im base type, it DOES have keyID
+      returnType: 'Uint8Array'
+    })
+    // Add it to the prover's identity key with point addition
+    const curve = new Curve()
+    const linkagePoint = curve.g.mul(
+      new BigNumber([...new Uint8Array(decryptedLinkage as Uint8Array)])
+    )
+    const identityKey = PublicKey.fromString(linkage.prover)
+    const actualDerivedPoint = identityKey.add(linkagePoint)
+    const actualDerivedKey = new PublicKey(actualDerivedPoint).toString()
+    // Check the result against the expected key
+    if (expectedKey === actualDerivedKey) {
+      return true
+    }
+    return false
+  }
+
+  private async findFromOverlay(token: { txid: string, vout: number }): Promise<OverlaySearchResult[]> {
     const result = await this.authrite.request(`${this.confederacyHost}/lookup`, {
       method: 'post',
       headers: {
@@ -672,10 +867,11 @@ export class BTMS {
       })
     })
 
-    return await result.json()
+    const json = await result.json()
+    return json
   }
 
-  private async submitToOverlay(tx, topics = [this.topic]) {
+  private async submitToOverlay(tx, topics = [this.topic]): Promise<SubmitResult> {
     const result = await this.authrite.request(`${this.confederacyHost}/submit`, {
       method: 'post',
       headers: {
@@ -686,10 +882,12 @@ export class BTMS {
         topics
       })
     })
-    return await result.json()
+    const json = await result.json()
+    console.log('submit to overlay', json)
+    return json
   }
 
-  private getCounterpartyFromInstructions(i) {
+  private getCounterpartyFromInstructions(i): string {
     if (!i) {
       return 'self'
     }
@@ -699,17 +897,17 @@ export class BTMS {
     return i.sender
   }
 
-  private getKeyIDFromInstructions(i) {
+  private getKeyIDFromInstructions(i): string {
     if (!i) {
       return '1'
     }
     while (typeof i === 'string') {
       i = JSON.parse(i)
     }
-    return i.keyID
+    return i.keyID || '1'
   }
 
-  private getRandomKeyID() {
+  private getRandomKeyID(): string {
     // eslint-disable-next-line
     return require('crypto').randomBytes(32).toString('base64')
   }
