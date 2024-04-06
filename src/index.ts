@@ -3,13 +3,14 @@ import {
   createAction, getTransactionOutputs, getPublicKey, submitDirectTransaction,
   listActions, CreateActionResult, CreateActionOutput, CreateActionInput,
   GetTransactionOutputResult, revealKeyLinkage, SpecificKeyLinkageResult,
-  decrypt
+  decrypt,
+  EnvelopeApi
 } from '@babbage/sdk-ts'
 import { Authrite } from 'authrite-js'
 import Tokenator from '@babbage/tokenator'
 import { BigNumber, Curve, PublicKey, Utils } from '@bsv/sdk'
 
-interface Asset {
+export interface Asset {
   assetId: string
   balance: number
   name?: string
@@ -20,7 +21,7 @@ interface Asset {
   new?: boolean
 }
 
-interface TokenForRecipient {
+export interface TokenForRecipient {
   txid: string
   vout: number
   amount: number
@@ -29,12 +30,12 @@ interface TokenForRecipient {
   outputScript: string
 }
 
-interface SubmitResult {
+export interface SubmitResult {
   status: 'auccess'
   topics: Record<string, number[]>
 }
 
-interface OverlaySearchResult {
+export interface OverlaySearchResult {
   inputs: string | null
   mapiResponses: string | null
   outputScript: string
@@ -45,7 +46,7 @@ interface OverlaySearchResult {
   vout: number
 }
 
-interface IncomingPayment {
+export interface IncomingPayment {
   txid: string
   vout: number
   outputScript: string
@@ -57,7 +58,7 @@ interface IncomingPayment {
   envelope: CreateActionResult
 }
 
-interface OwnershipProof {
+export interface OwnershipProof {
   prover: string
   verifier: string
   assetId: string
@@ -270,7 +271,7 @@ export class BTMS {
     } catch (e) {/* ignore */ }
 
     // Create redeem scripts for your tokens
-    const inputs: any = {}
+    const inputs: Record<string, CreateActionInput> = {}
     for (const t of myTokens) {
       const unlockingScript = await pushdrop.redeem({
         prevTxId: t.txid,
@@ -283,7 +284,7 @@ export class BTMS {
       })
       if (!inputs[t.txid]) {
         inputs[t.txid] = {
-          ...t.envelope,
+          ...t.envelope as EnvelopeApi,
           inputs: typeof t.envelope?.inputs === 'string'
             ? JSON.parse(t.envelope?.inputs)
             : t.envelope?.inputs,
