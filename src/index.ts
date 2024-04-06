@@ -7,6 +7,7 @@ import {
 } from '@babbage/sdk-ts'
 import { Authrite } from 'authrite-js'
 import Tokenator from '@babbage/tokenator'
+import { BigNumber, Curve, PublicKey, Utils } from '@bsv/sdk'
 
 interface Asset {
   assetId: string
@@ -31,6 +32,17 @@ interface TokenForRecipient {
 interface SubmitResult {
   status: 'auccess'
   topics: Record<string, number[]>
+}
+
+interface OverlaySearchResult {
+  inputs: string | null
+  mapiResponses: string | null
+  outputScript: string
+  proof: string | null
+  rawTx: string
+  satoshis: number
+  txid: string
+  vout: number
 }
 
 interface IncomingPayment {
@@ -730,7 +742,7 @@ export class BTMS {
 
   async proveOwnership(assetId: string, amount: number, verifier: string): Promise<OwnershipProof> {
     // Get a list of tokens
-    const myTokens = await this.getTokens(assetId, false)
+    const myTokens = await this.getTokens(assetId, true)
     let amountProven = 0
     const provenTokens: {
       output: GetTransactionOutputResult;
@@ -743,7 +755,7 @@ export class BTMS {
       const parsedInstructions = JSON.parse(token.customInstructions as string)
       const linkage = await revealKeyLinkage({
         mode: 'specific',
-        counterparty: this.getCounterpartyFromInstructions(parsedInstructionss),
+        counterparty: this.getCounterpartyFromInstructions(parsedInstructions),
         protocolID: this.protocolID,
         keyID: this.getKeyIDFromInstructions(parsedInstructions),
         verifier,
@@ -784,7 +796,7 @@ export class BTMS {
     for (const token of proof.tokens) {
       // Increment the amount counter each time
       const t = pushdrop.decode({
-        script: token.outputScript,
+        script: token.output.outputScript,
         fieldFormat: 'utf8'
       })
       amountProven += Number(t.fields[1])
@@ -820,18 +832,26 @@ export class BTMS {
     const decryptedLinkage = await decrypt({
       ciphertext: linkage.encryptedLinkage,
       counterparty: linkage.prover,
-      protocolID: [2, 'specific key linkage revelation'],
-      keyID: `${linkage.protocolID[0]} ${linkage.protocolID[1]}`,
-      returnType: 'string'
+      protocolID: [2, `specific linkage revelation ${linkage.protocolID[0]} ${linkage.protocolID[1]}`],
+      keyID: (linkage as unknown as { keyID: string }).keyID, // !!! ERRPR im base type, it DOES have keyID
+      returnType: 'Uint8Array'
     })
-    // NOT YET FINISHED
-    console.log('Obtained decrypted linkage', decryptedLinkage)
-    // TODO: Add it to the prover's identity key with point addition
-    // TODO: Check the result against the expected key
-    return false // temp TODO
+    // Add it to the prover's identity key with point addition
+    const curve = new Curve()
+    const linkagePoint = curve.g.mul(
+      new BigNumber([...new Uint8Array(decryptedLinkage as Uint8Array)])
+    )
+    const identityKey = PublicKey.fromString(linkage.prover)
+    const actualDerivedPoint = identityKey.add(linkagePoint)
+    const actualDerivedKey = new PublicKey(actualDerivedPoint).toString()
+    // Check the result against the expected key
+    if (expectedKey === actualDerivedKey) {
+      return true
+    }
+    return false
   }
 
-  private async findFromOverlay(token: { txid: string, vout: number }): Promise<any> {
+  private async findFromOverlay(token: { txid: string, vout: number }): Promise<OverlaySearchResult[]> {
     const result = await this.authrite.request(`${this.confederacyHost}/lookup`, {
       method: 'post',
       headers: {
@@ -847,7 +867,6 @@ export class BTMS {
     })
 
     const json = await result.json()
-    console.log('find from overlay', json)
     return json
   }
 
@@ -884,7 +903,7 @@ export class BTMS {
     while (typeof i === 'string') {
       i = JSON.parse(i)
     }
-    return i.keyID
+    return i.keyID || '1'
   }
 
   private getRandomKeyID(): string {
