@@ -43,12 +43,12 @@
     "typescript": "^4.9.5"
   },
   "dependencies": {
-    "@babbage/sdk-ts": "^0.2.14",
-    "@babbage/tokenator": "^0.2.19",
+    "@babbage/sdk-ts": "^0.2.15",
+    "@babbage/tokenator": "^0.2.20",
     "@bsv/sdk": "^1.0.17",
-    "authrite-js": "^0.4.17",
+    "authrite-js": "^0.4.18",
     "babbage-bsv": "^0.2.4",
-    "pushdrop": "^0.1.45",
+    "pushdrop": "^0.1.46",
     "ts2md": "^0.2.0"
   }
 }
