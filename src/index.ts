@@ -3,15 +3,211 @@ import {
   createAction, getTransactionOutputs, getPublicKey, submitDirectTransaction,
   listActions, CreateActionResult, CreateActionOutput, CreateActionInput,
   GetTransactionOutputResult, revealKeyLinkage, SpecificKeyLinkageResult,
-  decrypt as SDKDecrypt, EnvelopeApi
+  decrypt as SDKDecrypt, EnvelopeApi,
+  ProtocolID,
+  createSignature
 } from '@babbage/sdk-ts'
 import { Authrite } from 'authrite-js'
 import Tokenator from '@babbage/tokenator'
-import { BigNumber, Curve, PrivateKey, PublicKey } from '@bsv/sdk'
+import { BigNumber, Curve, LockingScript, P2PKH, PrivateKey, PublicKey, Transaction, ScriptTemplate, OP, UnlockingScript, TransactionSignature, Signature } from '@bsv/sdk'
 import { getPaymentPrivateKey } from 'sendover'
 import { decrypt as CWIDecrypt } from 'cwi-crypto'
+import { toArray } from '@bsv/sdk/dist/types/src/primitives/utils'
+import { sha256 } from '@bsv/sdk/dist/types/src/primitives/Hash'
 
 const ANYONE = '0000000000000000000000000000000000000000000000000000000000000001'
+
+/**
+ * Given a Buffer as an input, returns a minimally-encoded version as a hex string, plus any pushdata that may be required.
+ * @param buf - NodeJS Buffer containing an intended Bitcoin script stack element
+ * @return {String} Minimally-encoded version, plus the correct opcodes required to push it with minimal encoding, if any, in hex string format.
+ * @private
+ */
+const minimalEncoding = (buf): string => {
+  if (!(buf instanceof Buffer)) {
+    buf = Buffer.from(buf)
+  }
+  if (buf.byteLength === 0) {
+    // Could have used OP_0.
+    return '00'
+  }
+  if (buf.byteLength === 1 && buf[0] === 0) {
+    // Could have used OP_0.
+    return '00'
+  }
+  if (buf.byteLength === 1 && buf[0] > 0 && buf[0] <= 16) {
+    // Could have used OP_0 .. OP_16.
+    return `${(0x50 + (buf[0])).toString(16)}`
+  }
+  if (buf.byteLength === 1 && buf[0] === 0x81) {
+    // Could have used OP_1NEGATE.
+    return '4f'
+  }
+  if (buf.byteLength <= 75) {
+    // Could have used a direct push (opcode indicating number of bytes
+    // pushed + those bytes).
+    return Buffer.concat([
+      Buffer.from([buf.byteLength]),
+      buf
+    ]).toString('hex')
+  }
+  if (buf.byteLength <= 255) {
+    // Could have used OP_PUSHDATA.
+    return Buffer.concat([
+      Buffer.from([0x4c]),
+      Buffer.from([buf.byteLength]),
+      buf
+    ]).toString('hex')
+  }
+  if (buf.byteLength <= 65535) {
+    // Could have used OP_PUSHDATA2.
+    const len = Buffer.alloc(2)
+    len.writeUInt16LE(buf.byteLength)
+    return Buffer.concat([
+      Buffer.from([0x4d]),
+      len,
+      buf
+    ]).toString('hex')
+  }
+  const len = Buffer.alloc(4)
+  len.writeUInt32LE(buf.byteLength)
+  return Buffer.concat([
+    Buffer.from([0x4e]),
+    len,
+    buf
+  ]).toString('hex')
+}
+
+const OP_DROP = '75'
+const OP_2DROP = '6d'
+
+class BTMSToken implements ScriptTemplate {
+  async lock(protocolID: ProtocolID, keyID: string, counterparty: string, assetId: string, amount: number, metadata: string, forSelf?= false): Promise<LockingScript> {
+    const publicKey = await getPublicKey({
+      protocolID,
+      keyID,
+      counterparty,
+      forSelf
+    })
+    const lockPart = new LockingScript([
+      { op: publicKey.length / 2, data: toArray(publicKey, 'hex') },
+      { op: OP.OP_CHECKSIG }
+    ]).toHex()
+    const fields: Array<string | Uint8Array> = [
+      assetId,
+      String(amount),
+      metadata
+    ]
+    const dataToSign = Buffer.concat(fields.map(x => Buffer.from(x)))
+    const signature = await createSignature({
+      data: dataToSign,
+      protocolID,
+      keyID,
+      counterparty,
+    })
+    fields.push(signature)
+    const pushPart = fields.reduce(
+      (acc, el) => acc + minimalEncoding(el),
+      ''
+    )
+    let dropPart = ''
+    let undropped = fields.length
+    while (undropped > 1) {
+      dropPart += OP_2DROP
+      undropped -= 2
+    }
+    if (undropped) {
+      dropPart += OP_DROP
+    }
+    return LockingScript.fromHex(`${lockPart}${pushPart}${dropPart}`)
+  }
+
+  unlock(
+    protocolID: ProtocolID,
+    keyID: string,
+    counterparty: string,
+    sourceTXID?: string,
+    sourceSatoshis?: number,
+    lockingScript?: LockingScript,
+    signOutputs: 'all' | 'none' | 'single' = 'all',
+    anyoneCanPay = false
+  ): {
+    sign: (tx: Transaction, inputIndex: number) => Promise<UnlockingScript>
+    estimateLength: () => Promise<72>
+  } {
+    return {
+      sign: async (tx: Transaction, inputIndex: number): Promise<UnlockingScript> => {
+        const input = tx.inputs[inputIndex]
+        const otherInputs = tx.inputs.filter((_, index) => index !== inputIndex)
+        const sourceTXID = input.sourceTXID ? input.sourceTXID : input.sourceTransaction?.id('hex') as string
+        if (!sourceTXID) {
+          throw new Error(
+            'The input sourceTXID or sourceTransaction is required for transaction signing.'
+          )
+        }
+        sourceSatoshis ||= input.sourceTransaction?.outputs[input.sourceOutputIndex].satoshis
+        if (!sourceSatoshis) {
+          throw new Error(
+            'The sourceSatoshis or input sourceTransaction is required for transaction signing.'
+          )
+        }
+        lockingScript ||= input.sourceTransaction?.outputs[input.sourceOutputIndex].lockingScript
+        if (!lockingScript) {
+          throw new Error(
+            'The lockingScript or input sourceTransaction is required for transaction signing.'
+          )
+        }
+
+        let signatureScope = TransactionSignature.SIGHASH_FORKID
+        if (signOutputs === 'all') {
+          signatureScope |= TransactionSignature.SIGHASH_ALL
+        }
+        if (signOutputs === 'none') {
+          signatureScope |= TransactionSignature.SIGHASH_NONE
+        }
+        if (signOutputs === 'single') {
+          signatureScope |= TransactionSignature.SIGHASH_SINGLE
+        }
+        if (anyoneCanPay) {
+          signatureScope |= TransactionSignature.SIGHASH_ANYONECANPAY
+        }
+
+        const preimage = TransactionSignature.format({
+          sourceTXID,
+          sourceOutputIndex: input.sourceOutputIndex,
+          sourceSatoshis,
+          transactionVersion: tx.version,
+          otherInputs,
+          inputIndex,
+          outputs: tx.outputs,
+          inputSequence: input.sequence,
+          subscript: lockingScript,
+          lockTime: tx.lockTime,
+          scope: signatureScope
+        })
+        const preimageHash = sha256(preimage)
+        const SDKSignature = await createSignature({
+          data: Uint8Array.from(preimageHash),
+          protocolID,
+          keyID,
+          counterparty
+        })
+        const rawSignature = Signature.fromDER([...SDKSignature])
+        const sig = new TransactionSignature(
+          rawSignature.r,
+          rawSignature.s,
+          signatureScope
+        )
+        const sigForScript = sig.toChecksigFormat()
+        return new UnlockingScript([
+          { op: sigForScript.length, data: sigForScript }
+        ])
+      },
+      estimateLength: async () => 72
+    }
+  }
+}
+
 
 export interface Asset {
   assetId: string
@@ -241,15 +437,8 @@ export class BTMS {
 
   async issue(amount: number, name: string): Promise<SubmitResult> {
     const keyID = this.getRandomKeyID()
-    const tokenScript: string = await pushdrop.create({ // TODO: signing strategy
-      fields: [
-        'ISSUE',
-        String(amount),
-        JSON.stringify({ name })
-      ],
-      protocolID: this.protocolID,
-      keyID
-    })
+    const template = new BTMSToken()
+    const tokenScript = (await template.lock(this.protocolID, keyID, 'self', 'ISSUE', amount, JSON.stringify({ name }))).toHex()
     const action = await createAction({ // TODO: signing strategy
       description: `Issue ${amount} ${name} ${amount === 1 ? 'token' : 'tokens'}`,
       // labels: ??? // TODO: Label the issuance transaction with the issuance ID after it is created. Currently, issuance transactions do not show up.
@@ -343,16 +532,8 @@ export class BTMS {
     // Create outputs for the recipient and your own change
     const outputs: CreateActionOutput[] = []
     const recipientKeyID = this.getRandomKeyID()
-    const recipientScript: string = await pushdrop.create({ // TODO: signing strategy
-      fields: [
-        assetId,
-        String(sendAmount),
-        metadata
-      ],
-      protocolID: this.protocolID,
-      keyID: recipientKeyID,
-      counterparty: recipient
-    })
+    const template = new BTMSToken()
+    const recipientScript = (await template.lock(this.protocolID, recipientKeyID, recipient, assetId, sendAmount, metadata)).toHex()
     outputs.push({
       script: recipientScript,
       satoshis: this.satoshis,
@@ -371,16 +552,7 @@ export class BTMS {
     let changeScript
     if (myBalance - sendAmount > 0) {
       const changeKeyID = this.getRandomKeyID()
-      changeScript = await pushdrop.create({ // TODO: signing strategy
-        fields: [
-          assetId,
-          String(myBalance - sendAmount),
-          metadata
-        ],
-        protocolID: this.protocolID,
-        keyID: changeKeyID,
-        counterparty: 'self'
-      })
+      changeScript = (await template.lock(this.protocolID, changeKeyID, 'self', assetId, myBalance - sendAmount, metadata)).toHex()
       outputs.push({
         script: changeScript,
         basket: this.basket,
@@ -600,16 +772,8 @@ export class BTMS {
     // Create outputs for the recipient and your own change
     const outputs: CreateActionOutput[] = []
     const refundKeyID = this.getRandomKeyID()
-    const recipientScript = await pushdrop.create({ // TODO: signing strategy
-      fields: [
-        assetId,
-        String(payment.amount),
-        metadata
-      ],
-      protocolID: this.protocolID,
-      keyID: refundKeyID,
-      counterparty: payment.sender
-    })
+    const template = new BTMSToken()
+    const recipientScript = (await template.lock(this.protocolID, refundKeyID, payment.sender, assetId, payment.amount, metadata)).toHex()
     outputs.push({
       script: recipientScript,
       satoshis: this.satoshis
@@ -923,6 +1087,7 @@ export class BTMS {
     const anyonePub = new PrivateKey(ANYONE, 'hex').toPublicKey().toString()
     const proof = await this.proveOwnership(assetId, amount, anyonePub)
     // Compose a PushDrop token
+    const template = new BTMSToken()
     const token = await pushdrop.create({
       fields: [
         Buffer.from(JSON.stringify(proof), 'utf8'),
@@ -983,54 +1148,98 @@ export class BTMS {
     if (!verified) {
       throw new Error('Item is no longer for sale.')
     }
+
     // Compose a proof of our assets for the seller
     const buyerProof = await this.proveOwnership(assetId, amount, entry.seller)
+
+    // prepare a funding UTXO for the trade offer
+    const fundingKeyID = this.getRandomKeyID()
+    const fundingPublicKeyString = await getPublicKey({
+      protocolID: this.protocolID,
+      keyID: fundingKeyID,
+      counterparty: entry.seller
+    })
+    const fundingPublicKey = PublicKey.fromString(fundingPublicKeyString)
+    const fundingAddress = fundingPublicKey.toAddress()
+    const fundingLock = new P2PKH()
+    const fundingScript = fundingLock.lock(fundingAddress)
+    const fundingAction = await createAction({
+      outputs: [{
+        satoshis: 1000,
+        script: fundingScript.toHex(),
+        description: 'Fund a trade offer',
+        basket: `${this.basket} trades`
+      }],
+      description: 'Offer a trade'
+    })
+
+    // Extract buyer's asset metadata to forward in the new UTXO
     const decodedBuyerAsset = pushdrop.redeem({
       script: buyerProof.tokens[0].output.outputScript,
       returnType: 'utf8'
     })
     const metadata = decodedBuyerAsset.fields[2].toString('utf8')
-    // Create a conditionally signed transaction paying the seller's assets to us
-    const desiredBuyerKeyID = this.getRandomKeyID()
-    const desiredBuyerScript = await pushdrop.create({
-      fields: [
-        Buffer.from(entry.assetId, 'utf8'),
-        Buffer.from(String(entry.amount), 'utf8'),
-        Buffer.from(entry.metadata, 'utf8')
-      ],
-      protocolID: this.protocolID,
-      keyID: desiredBuyerKeyID,
-      counterparty: entry.seller,
-      ownedByCreator: true
-    })
-    const desiredSellerKeyID = this.getRandomKeyID()
-    const desiredSellerScript = await pushdrop.create({
-      fields: [
-        Buffer.from(assetId, 'utf8'),
-        Buffer.from(String(amount), 'utf8'),
-        Buffer.from(metadata, 'utf8')
-      ],
-      protocolID: this.protocolID,
-      keyID: desiredSellerKeyID,
-      counterparty: entry.seller,
-      ownedByCreator: false
-    })
-    // TODO: Go through all seller inputs and add them to the list
-    // TODO: Go through all buyer inputs and sign them conditionally
-    const outputs = [{
-      script: desiredBuyerScript,
-      satoshis: this.satoshis
-    }, {
-      script: desiredSellerScript,
-      satoshis: this.satoshis
-    }] // TODO: Buyer and seller may both want change. Currently this is not implemented.
-    const templateToSign = await createAction({
-      inputs: {},
-      outputs,
-      description: 'Propose an asset exchange'
-    })
 
-    // Send the proof to the seller
+    // Create scripts for both the buyer's and seller's new ownership
+    const desiredBuyerKeyID = this.getRandomKeyID()
+    const template = new BTMSToken()
+    const desiredBuyerScript = (await template.lock(this.protocolID, desiredBuyerKeyID, entry.seller, assetId, entry.amount, metadata, true)).toHex()
+    const desiredSellerKeyID = this.getRandomKeyID()
+    const desiredSellerScript = (await template.lock(this.protocolID, desiredSellerKeyID, entry.seller, assetId, amount, metadata)).toHex()
+
+    // Create a conditionally signed transaction paying the seller's assets to us
+    const tx = new Transaction()
+
+    // Add outputs
+    tx.addOutput({
+      lockingScript: LockingScript.fromHex(desiredBuyerScript),
+      satoshis: this.satoshis
+    })
+    tx.addOutput({
+      lockingScript: LockingScript.fromHex(desiredSellerScript),
+      satoshis: this.satoshis
+    })
+    // TODO: Buyer and seller may both want change. Currently this is not implemented
+
+    // Go through all seller inputs and add them to the list
+    for (let i = 0; i < entry.ownershipProof.tokens.length; i++) {
+      tx.addInput({
+        sourceTransaction: Transaction.fromHex(entry.ownershipProof.tokens[i].output.envelope?.rawTx as string),
+        sourceOutputIndex: entry.ownershipProof.tokens[i].output.vout,
+        sequence: 0xffffffff
+      })
+    }
+
+    // TODO: Add the funding input
+
+    // Go through all buyer inputs and sign them conditionally
+    for (let i = 0; i < buyerProof.tokens.length; i++) {
+      const token = buyerProof.tokens[i]
+      const parsedInstructions = JSON.parse(token.output.customInstructions as string)
+      const keyID = this.getKeyIDFromInstructions(parsedInstructions)
+      const counterparty = this.getCounterpartyFromInstructions(parsedInstructions)
+      tx.addInput({
+        sourceTransaction: Transaction.fromHex(token.output.envelope?.rawTx as string),
+        sourceOutputIndex: token.output.vout,
+        sequence: 0xffffffff,
+        unlockingScriptTemplate: template.unlock(this.protocolID, keyID, counterparty)
+      })
+    }
+
+    // sign the transacton
+    await tx.sign()
+
+    // Send the proof to the seller as an offer
+    const conditionalTX = tx.toHex()
+    await this.tokenator.sendMessage({
+      recipient: entry.seller,
+      messageBox: this.marketplaceMessageBox,
+      body: JSON.stringify({
+        conditionalTX,
+        buyerProof,
+        entry
+      })
+    })
   }
 
   private async verifyLinkageForProver(linkage: SpecificKeyLinkageResult, expectedKey: string, useAnyoneKey = false): Promise<boolean> {

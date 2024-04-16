@@ -45,7 +45,7 @@
   "dependencies": {
     "@babbage/sdk-ts": "^0.2.13",
     "@babbage/tokenator": "^0.2.13",
-    "@bsv/sdk": "^1.0.15",
+    "@bsv/sdk": "^1.0.18",
     "authrite-js": "^0.4.12",
     "babbage-bsv": "^0.2.4",
     "cwi-crypto": "^0.1.8",
