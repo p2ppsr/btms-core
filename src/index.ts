@@ -14,6 +14,7 @@ import { getPaymentPrivateKey } from 'sendover'
 import { decrypt as CWIDecrypt } from 'cwi-crypto'
 import { toArray } from '@bsv/sdk/dist/types/src/primitives/utils'
 import { sha256 } from '@bsv/sdk/dist/types/src/primitives/Hash'
+import stringify from 'json-stable-stringify'
 
 const ANYONE = '0000000000000000000000000000000000000000000000000000000000000001'
 
@@ -139,7 +140,7 @@ class BTMSToken implements ScriptTemplate {
       sign: async (tx: Transaction, inputIndex: number): Promise<UnlockingScript> => {
         const input = tx.inputs[inputIndex]
         const otherInputs = tx.inputs.filter((_, index) => index !== inputIndex)
-        const sourceTXID = input.sourceTXID ? input.sourceTXID : input.sourceTransaction?.id('hex') as string
+        sourceTXID = input.sourceTXID ? input.sourceTXID : input.sourceTransaction?.id('hex') as string
         if (!sourceTXID) {
           throw new Error(
             'The input sourceTXID or sourceTransaction is required for transaction signing.'
@@ -208,6 +209,86 @@ class BTMSToken implements ScriptTemplate {
   }
 }
 
+class BTMSFundingToken implements ScriptTemplate {
+  async lock(protocolID: ProtocolID, keyID: string, counterparty: string): Promise<LockingScript> {
+    const fundingPublicKeyString = await getPublicKey({ protocolID, keyID, counterparty })
+    const fundingAddress = PublicKey.fromString(fundingPublicKeyString).toAddress()
+    return new P2PKH().lock(fundingAddress)
+  }
+  unlock(
+    protocolID: ProtocolID,
+    keyID: string,
+    counterparty: string,
+  ): {
+    sign: (tx: Transaction, inputIndex: number) => Promise<UnlockingScript>
+    estimateLength: () => Promise<106>
+  } {
+    return {
+      sign: async (tx: Transaction, inputIndex: number): Promise<UnlockingScript> => {
+        const input = tx.inputs[inputIndex]
+        const otherInputs = tx.inputs.filter((_, index) => index !== inputIndex)
+        const sourceTXID = input.sourceTXID ? input.sourceTXID : input.sourceTransaction?.id('hex') as string
+        if (!sourceTXID) {
+          throw new Error(
+            'The input sourceTXID or sourceTransaction is required for transaction signing.'
+          )
+        }
+        const sourceSatoshis = input.sourceTransaction?.outputs[input.sourceOutputIndex].satoshis
+        if (!sourceSatoshis) {
+          throw new Error(
+            'The sourceSatoshis or input sourceTransaction is required for transaction signing.'
+          )
+        }
+        const lockingScript = input.sourceTransaction?.outputs[input.sourceOutputIndex].lockingScript
+        if (!lockingScript) {
+          throw new Error(
+            'The lockingScript or input sourceTransaction is required for transaction signing.'
+          )
+        }
+
+        const signatureScope = TransactionSignature.SIGHASH_FORKID | TransactionSignature.SIGHASH_ALL
+        const preimage = TransactionSignature.format({
+          sourceTXID,
+          sourceOutputIndex: input.sourceOutputIndex,
+          sourceSatoshis,
+          transactionVersion: tx.version,
+          otherInputs,
+          inputIndex,
+          outputs: tx.outputs,
+          inputSequence: input.sequence,
+          subscript: lockingScript,
+          lockTime: tx.lockTime,
+          scope: signatureScope
+        })
+        const preimageHash = sha256(preimage)
+        const SDKSignature = await createSignature({
+          data: Uint8Array.from(preimageHash),
+          protocolID,
+          keyID,
+          counterparty
+        })
+        const rawSignature = Signature.fromDER([...SDKSignature])
+        const sig = new TransactionSignature(
+          rawSignature.r,
+          rawSignature.s,
+          signatureScope
+        )
+        const sigForScript = sig.toChecksigFormat()
+        const publicKeyString = await getPublicKey({
+          protocolID,
+          keyID,
+          counterparty,
+          forSelf: true
+        })
+        return new UnlockingScript([
+          { op: sigForScript.length, data: sigForScript },
+          { op: publicKeyString.length / 2, data: toArray(publicKeyString, 'hex') }
+        ])
+      },
+      estimateLength: async () => 106
+    }
+  }
+}
 
 export interface Asset {
   assetId: string
@@ -276,6 +357,24 @@ interface MarketplaceEntry {
   desiredAssets: Record<string, number>
   ownershipProof: OwnershipProof
   metadata: string
+}
+
+interface MarketplaceOffer {
+  buyerOffersAssetId: string
+  buyerOffersAmount: number
+  buyerProof: OwnershipProof
+  buyerPartialTX: string
+  buyerFundingEnvelope: CreateActionResult | EnvelopeApi
+  sellerEntry: MarketplaceEntry
+  fundingKeyID: string
+}
+
+interface BuyerOfferCustomInstructions {
+  buyerProof: OwnershipProof
+  buyerOfferedAssetId: string
+  buyerOfferedAmount: number
+  sellerEntry: MarketplaceEntry
+  fundingKeyID: string
 }
 
 /**
@@ -1087,7 +1186,6 @@ export class BTMS {
     const anyonePub = new PrivateKey(ANYONE, 'hex').toPublicKey().toString()
     const proof = await this.proveOwnership(assetId, amount, anyonePub)
     // Compose a PushDrop token
-    const template = new BTMSToken()
     const token = await pushdrop.create({
       fields: [
         Buffer.from(JSON.stringify(proof), 'utf8'),
@@ -1115,8 +1213,15 @@ export class BTMS {
    * Returns an array of all marketplace entries
    * @returns An array of all marketplace entries
    */
-  async findAllAssetsForSale(): Promise<MarketplaceEntry[]> {
-    const assets = await this.findFromMarketplaceOverlay({ findAll: true })
+  async findAllAssetsForSale(findMine = false): Promise<MarketplaceEntry[]> {
+    const findParams: { seller?: string, findAll?: boolean } = {}
+    if (findMine) {
+      const myIdentity = await getPublicKey({ identityKey: true })
+      findParams.seller = myIdentity
+    } else {
+      findParams.findAll = true
+    }
+    const assets = await this.findFromMarketplaceOverlay(findParams)
     const results: MarketplaceEntry[] = []
     for (const asset of assets) {
       const decoded = pushdrop.decode({
@@ -1154,21 +1259,22 @@ export class BTMS {
 
     // prepare a funding UTXO for the trade offer
     const fundingKeyID = this.getRandomKeyID()
-    const fundingPublicKeyString = await getPublicKey({
-      protocolID: this.protocolID,
-      keyID: fundingKeyID,
-      counterparty: entry.seller
-    })
-    const fundingPublicKey = PublicKey.fromString(fundingPublicKeyString)
-    const fundingAddress = fundingPublicKey.toAddress()
-    const fundingLock = new P2PKH()
-    const fundingScript = fundingLock.lock(fundingAddress)
+    const fundingTemplate = new BTMSFundingToken()
+    const fundingScript = await fundingTemplate.lock(this.protocolID, fundingKeyID, entry.seller)
+    const buyerOfferCustomInstructions: BuyerOfferCustomInstructions = {
+      buyerProof,
+      buyerOfferedAssetId: assetId,
+      buyerOfferedAmount: amount,
+      sellerEntry: entry,
+      fundingKeyID
+    }
     const fundingAction = await createAction({
       outputs: [{
         satoshis: 1000,
         script: fundingScript.toHex(),
         description: 'Fund a trade offer',
-        basket: `${this.basket} trades`
+        basket: `${this.basket} trades`,
+        customInstructions: JSON.stringify(buyerOfferCustomInstructions)
       }],
       description: 'Offer a trade'
     })
@@ -1210,7 +1316,13 @@ export class BTMS {
       })
     }
 
-    // TODO: Add the funding input
+    // Add the funding input
+    tx.addInput({
+      sourceTransaction: Transaction.fromHex(fundingAction.rawTx),
+      sourceOutputIndex: 0,
+      sequence: 0xffffffff,
+      unlockingScriptTemplate: fundingTemplate.unlock(this.protocolID, fundingKeyID, entry.seller)
+    })
 
     // Go through all buyer inputs and sign them conditionally
     for (let i = 0; i < buyerProof.tokens.length; i++) {
@@ -1230,16 +1342,148 @@ export class BTMS {
     await tx.sign()
 
     // Send the proof to the seller as an offer
-    const conditionalTX = tx.toHex()
+    const partialTX = tx.toHex()
+
+    const offer: MarketplaceOffer = {
+      buyerPartialTX: partialTX,
+      buyerProof,
+      buyerOffersAssetId: assetId,
+      buyerOffersAmount: amount,
+      sellerEntry: entry,
+      buyerFundingEnvelope: fundingAction,
+      fundingKeyID
+    }
+
     await this.tokenator.sendMessage({
       recipient: entry.seller,
       messageBox: this.marketplaceMessageBox,
-      body: JSON.stringify({
-        conditionalTX,
-        buyerProof,
-        entry
-      })
+      body: JSON.stringify(offer)
     })
+  }
+
+  // Get outgoing offers
+  // TODO: support forAsset using output tags
+  async getOutgoingOffers(): Promise<MarketplaceOffer[]> {
+    const basketEntries = await getTransactionOutputs({
+      basket: `${this.basket} trades`,
+      spendable: true,
+      includeEnvelope: true,
+      includeCustomInstructions: true
+    })
+    const results: MarketplaceOffer[] = []
+    for (let i = 0; i < basketEntries.length; i++) {
+      const parsedInstructions: BuyerOfferCustomInstructions = JSON.parse(basketEntries[i].customInstructions as string)
+      results.push({
+        buyerFundingEnvelope: verifyTruthy(basketEntries[i].envelope),
+        buyerOffersAssetId: parsedInstructions.buyerOfferedAssetId,
+        buyerOffersAmount: parsedInstructions.buyerOfferedAmount,
+        buyerProof: parsedInstructions.buyerProof,
+        buyerPartialTX: '', // The TX could not have been stored in custom instructions.
+        // HOwever, the buyer does not need the TX to cancel the offer.
+        // The buyer would just need to spend the funding UTXO.
+        sellerEntry: parsedInstructions.sellerEntry,
+        fundingKeyID: parsedInstructions.fundingKeyID
+      })
+    }
+    return results
+  }
+
+  // cancel outgoing offer
+  async cancelOutgoingOffer(offer: MarketplaceOffer): Promise<void> {
+    // Compute an unlocking script
+    const fundingTX = Transaction.fromHex(offer.buyerFundingEnvelope.rawTx)
+    const fundingTXID = offer.buyerFundingEnvelope.txid || fundingTX.id('hex') as string
+    const signatureScope = TransactionSignature.SIGHASH_FORKID | TransactionSignature.SIGHASH_NONE | TransactionSignature.SIGHASH_ANYONECANPAY
+    const preimage = TransactionSignature.format({
+      sourceTXID: fundingTXID,
+      sourceOutputIndex: 0,
+      sourceSatoshis: fundingTX.outputs[0].satoshis as number,
+      transactionVersion: 1,
+      otherInputs: [],
+      inputIndex: 0,
+      outputs: [],
+      inputSequence: 0xffffffff,
+      subscript: fundingTX.outputs[0].lockingScript,
+      lockTime: 0,
+      scope: signatureScope
+    })
+    const preimageHash = sha256(preimage)
+    const SDKSignature = await createSignature({
+      data: Uint8Array.from(preimageHash),
+      protocolID: this.protocolID,
+      keyID: offer.fundingKeyID,
+      counterparty: offer.sellerEntry.seller
+    })
+    const rawSignature = Signature.fromDER([...SDKSignature])
+    const sig = new TransactionSignature(
+      rawSignature.r,
+      rawSignature.s,
+      signatureScope
+    )
+    const sigForScript = sig.toChecksigFormat()
+    const publicKeyString = await getPublicKey({
+      protocolID: this.protocolID,
+      keyID: offer.fundingKeyID,
+      counterparty: offer.sellerEntry.seller,
+      forSelf: true
+    })
+    const unlockingScript = new UnlockingScript([
+      { op: sigForScript.length, data: sigForScript },
+      { op: publicKeyString.length / 2, data: toArray(publicKeyString, 'hex') }
+    ]).toHex()
+
+    // Spend the offer's funding input in a transaction
+    await createAction({
+      description: 'cancel an offer',
+      inputs: {
+        [fundingTXID]: {
+          ...verifyTruthy(offer.buyerFundingEnvelope),
+          outputsToRedeem: [{
+            index: 0,
+            unlockingScript
+          }]
+        }
+      }
+    })
+  }
+
+  async getIncomingOffers(forEntry?: MarketplaceEntry): Promise<MarketplaceOffer[]> {
+    const offerMessages = await this.tokenator.listMessages({
+      messageBox: this.marketplaceMessageBox
+    })
+    const results: MarketplaceOffer[] = []
+    let forEntryString: string | undefined = undefined
+    if (typeof forEntry !== 'undefined') {
+      forEntryString = stringify(forEntry)
+    }
+    const myEntries = await this.findAllAssetsForSale(true)
+    const myEntriesStrings: string[] = myEntries.map(x => stringify(x))
+    for (let i = 0; i < offerMessages.length; i++) {
+      try {
+        const parsedOffer: MarketplaceOffer = JSON.parse(offerMessages[i].body)
+        const sellerEntryString = stringify(parsedOffer.sellerEntry)
+        if (!myEntriesStrings.some(x => x === sellerEntryString)) {
+          continue
+        }
+        if (forEntryString && sellerEntryString !== forEntryString) {
+          continue
+        }
+        results.push(parsedOffer)
+      } catch (e) {
+        continue
+      }
+    }
+    return results
+  }
+
+  // accept incoming offer
+  async acceptOffer(offer: MarketplaceOffer): Promise<void> {
+
+  }
+
+  // reject incoming offer
+  async rejectOffer(offer: MarketplaceOffer): Promise<void> {
+
   }
 
   private async verifyLinkageForProver(linkage: SpecificKeyLinkageResult, expectedKey: string, useAnyoneKey = false): Promise<boolean> {
