@@ -83,7 +83,7 @@ const OP_DROP = '75'
 const OP_2DROP = '6d'
 
 class BTMSToken implements ScriptTemplate {
-  async lock(protocolID: ProtocolID, keyID: string, counterparty: string, assetId: string, amount: number, metadata: string, forSelf?= false): Promise<LockingScript> {
+  async lock(protocolID: ProtocolID, keyID: string, counterparty: string, assetId: string, amount: number, metadata: string, forSelf = false): Promise<LockingScript> {
     const publicKey = await getPublicKey({
       protocolID,
       keyID,
@@ -367,6 +367,13 @@ interface MarketplaceOffer {
   buyerFundingEnvelope: CreateActionResult | EnvelopeApi
   sellerEntry: MarketplaceEntry
   fundingKeyID: string
+  messageId?: string
+  rejected?: boolean
+  isAsDesiredBySeller?: boolean
+  desiredSellerKeyID?: string,
+  desiredSellerChangeKeyID?: string
+  desiredBuyerKeyID?: string
+  desiredBuyerChangeKeyID?: string
 }
 
 interface BuyerOfferCustomInstructions {
@@ -1351,7 +1358,11 @@ export class BTMS {
       buyerOffersAmount: amount,
       sellerEntry: entry,
       buyerFundingEnvelope: fundingAction,
-      fundingKeyID
+      fundingKeyID,
+      desiredSellerKeyID,
+      desiredSellerChangeKeyID: undefined,
+      desiredBuyerKeyID,
+      desiredBuyerChangeKeyID: undefined
     }
 
     await this.tokenator.sendMessage({
@@ -1361,18 +1372,23 @@ export class BTMS {
     })
   }
 
-  // Get outgoing offers
+  // List outgoing offers
   // TODO: support forAsset using output tags
-  async getOutgoingOffers(): Promise<MarketplaceOffer[]> {
+  async listOutgoingOffers(): Promise<MarketplaceOffer[]> {
     const basketEntries = await getTransactionOutputs({
       basket: `${this.basket} trades`,
       spendable: true,
       includeEnvelope: true,
       includeCustomInstructions: true
     })
+    const rejectionMessages = await this.tokenator.listMessages({
+      messageBox: `${this.marketplaceMessageBox}_rejection`
+    })
     const results: MarketplaceOffer[] = []
     for (let i = 0; i < basketEntries.length; i++) {
       const parsedInstructions: BuyerOfferCustomInstructions = JSON.parse(basketEntries[i].customInstructions as string)
+      // Check if the offer is rejected
+      const rejected = rejectionMessages.some(x => x.sender === parsedInstructions.sellerEntry.seller && x.body === basketEntries[i].txid)
       results.push({
         buyerFundingEnvelope: verifyTruthy(basketEntries[i].envelope),
         buyerOffersAssetId: parsedInstructions.buyerOfferedAssetId,
@@ -1382,7 +1398,8 @@ export class BTMS {
         // HOwever, the buyer does not need the TX to cancel the offer.
         // The buyer would just need to spend the funding UTXO.
         sellerEntry: parsedInstructions.sellerEntry,
-        fundingKeyID: parsedInstructions.fundingKeyID
+        fundingKeyID: parsedInstructions.fundingKeyID,
+        rejected
       })
     }
     return results
@@ -1447,7 +1464,7 @@ export class BTMS {
     })
   }
 
-  async getIncomingOffers(forEntry?: MarketplaceEntry): Promise<MarketplaceOffer[]> {
+  async listIncomingOffers(forEntry?: MarketplaceEntry): Promise<MarketplaceOffer[]> {
     const offerMessages = await this.tokenator.listMessages({
       messageBox: this.marketplaceMessageBox
     })
@@ -1468,6 +1485,16 @@ export class BTMS {
         if (forEntryString && sellerEntryString !== forEntryString) {
           continue
         }
+        const verified = await this.verifyOwnership(parsedOffer.buyerProof)
+        if (!verified) {
+          continue
+        }
+        if (parsedOffer.buyerProof.assetId !== parsedOffer.buyerOffersAssetId || parsedOffer.buyerProof.amount !== parsedOffer.buyerOffersAmount) {
+          continue
+        }
+        // TODO: Ensure inputs and outputs are correct from both proofs, including asset IDs and amounts
+        const isAsDesiredBySeller = parsedOffer.buyerOffersAmount >= parsedOffer.sellerEntry.desiredAssets[parsedOffer.buyerOffersAssetId]
+        parsedOffer.isAsDesiredBySeller = isAsDesiredBySeller
         results.push(parsedOffer)
       } catch (e) {
         continue
@@ -1478,12 +1505,140 @@ export class BTMS {
 
   // accept incoming offer
   async acceptOffer(offer: MarketplaceOffer): Promise<void> {
+    const verified = await this.verifyOwnership(offer.buyerProof)
+    if (!verified) {
+      throw new Error('The offer has been recinded by the buyer.')
+    }
+    const tx = Transaction.fromHex(offer.buyerPartialTX)
+    const template = new BTMSToken()
+    for (let i = 0; i < offer.sellerEntry.ownershipProof.tokens.length; i++) {
+      const token = offer.sellerEntry.ownershipProof.tokens[i]
+      // Ensure input exists
+      const inputIndex = tx.inputs.findIndex(x => x.sourceTXID === token.output.txid && x.sourceOutputIndex === token.output.vout)
+      if (inputIndex === -1) {
+        throw new Error('Buyer did not include a required seller output')
+      }
+      tx.inputs[inputIndex].unlockingScriptTemplate = template.unlock(
+        this.protocolID,
+        this.getKeyIDFromInstructions(token.output.customInstructions),
+        this.getCounterpartyFromInstructions(token.output.customInstructions)
+      )
+    }
+    await tx.sign()
+    const finalTX = tx.toHex()
+    // Assemble inputs and SPV envelope
+    const inputs: Record<string, EnvelopeApi> = {}
+    const fundingTXID = offer.buyerFundingEnvelope.txid || Transaction.fromHex(offer.buyerFundingEnvelope.rawTx).id('hex') as string
+    inputs[fundingTXID] = offer.buyerFundingEnvelope
+    for (let i = 0; i < offer.sellerEntry.ownershipProof.tokens.length; i++) {
+      const token = offer.sellerEntry.ownershipProof.tokens[i]
+      if (!inputs[token.output.txid]) {
+        inputs[token.output.txid] = token.output.envelope as EnvelopeApi
+      }
+    }
+    for (let i = 0; i < offer.buyerProof.tokens.length; i++) {
+      const token = offer.buyerProof.tokens[i]
+      if (!inputs[token.output.txid]) {
+        inputs[token.output.txid] = token.output.envelope as EnvelopeApi
+      }
+    }
+    const action: CreateActionResult = {
+      inputs,
+      rawTx: finalTX,
+      mapiResponses: [],
+      txid: tx.id('hex') as string
+    }
+    // Submit action to overlay
+    await this.submitToTokenOverlay(action)
+    // Submit action to seller (self) with submitDirectTransaction
+    await submitDirectTransaction({ // TODO: signing strategy
+      senderIdentityKey: offer.buyerProof.prover,
+      note: `Receive ${offer.buyerOffersAmount} ${offer.buyerProof.assetId} from trade with ${offer.buyerProof.prover} in exchange for sending them my ${offer.sellerEntry.amount} ${offer.sellerEntry.assetId}`,
+      amount: this.satoshis,
+      labels: [offer.buyerProof.assetId.replace('.', ' ')],
+      transaction: {
+        ...action,
+        outputs: [{
+          vout: 1, // TODO: Verify this!
+          basket: this.basket,
+          satoshis: this.satoshis,
+          tags: ['owner self'],
+          customInstructions: JSON.stringify({
+            sender: offer.buyerProof.prover,
+            keyID: offer.desiredSellerKeyID || '1'
+          })
+        }]
+      }
+    })
+    // Submit action to buyer with tokenator
+    await this.tokenator.sendMessage({
+      messageBox: `${this.marketplaceMessageBox}_acceptance`,
+      recipient: offer.buyerProof.prover,
+      body: JSON.stringify({ offer, action })
+    })
+  }
 
+  async acknowledgeNewlyAcquiredMarketplaceAssets(): Promise<void> {
+    // List newly acquired assets sent from sellers
+    const newAssets = await this.tokenator.listMessages({
+      messageBox: `${this.marketplaceMessageBox}_acceptance`
+    })
+    for (let i = 0; i < newAssets.length; i++) {
+      try {
+        const parsedAsset: { action: CreateActionResult, offer: MarketplaceOffer } = JSON.parse(newAssets[i].body)
+        // Auto-process them with submitDirectTransaction
+        await submitDirectTransaction({ // TODO: signing strategy
+          senderIdentityKey: newAssets[i].sender,
+          note: `Receive ${parsedAsset.offer.sellerEntry.amount} ${parsedAsset.offer.sellerEntry.assetId} from trade with ${parsedAsset.offer.sellerEntry.seller} in exchange for sending them my ${parsedAsset.offer.buyerOffersAmount} ${parsedAsset.offer.buyerOffersAssetId}`,
+          amount: this.satoshis,
+          labels: [parsedAsset.offer.sellerEntry.assetId.replace('.', ' ')],
+          transaction: {
+            ...parsedAsset.action,
+            outputs: [{
+              vout: 0, // TODO: Verify this!
+              basket: this.basket,
+              satoshis: this.satoshis,
+              tags: ['owner self'],
+              customInstructions: JSON.stringify({
+                sender: parsedAsset.offer.sellerEntry.seller,
+                keyID: parsedAsset.offer.desiredBuyerKeyID || '1'
+              })
+            }]
+          }
+        })
+      } catch (e) {
+        continue
+      } finally {
+        // acknowledge
+        await this.tokenator.acknowledgeMessages({
+          messageIds: [newAssets[i].messageId]
+        })
+      }
+    }
   }
 
   // reject incoming offer
   async rejectOffer(offer: MarketplaceOffer): Promise<void> {
+    await this.tokenator.acknowledgeMessages({
+      messageIds: [offer.messageId as string]
+    })
+    const fundingTXID = offer.buyerFundingEnvelope.txid || Transaction.fromHex(offer.buyerFundingEnvelope.rawTx).id('hex') as string
+    await this.tokenator.sendMessage({
+      messageBox: `${this.marketplaceMessageBox}_reject`,
+      recipient: offer.buyerProof.prover,
+      body: fundingTXID
+    })
+  }
 
+  // reject incoming offer
+  async acknowledgeRejection(offer: MarketplaceOffer): Promise<void> {
+    if (offer.rejected !== true) {
+      throw new Error('This offer was never rejected.')
+    }
+    await this.tokenator.acknowledgeMessages({
+      messageIds: [offer.messageId as string]
+    })
+    await this.cancelOutgoingOffer(offer)
   }
 
   private async verifyLinkageForProver(linkage: SpecificKeyLinkageResult, expectedKey: string, useAnyoneKey = false): Promise<boolean> {
