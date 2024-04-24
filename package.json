@@ -44,11 +44,11 @@
   },
   "dependencies": {
     "@babbage/sdk-ts": "^0.2.19",
-    "@babbage/tokenator": "^0.2.24",
+    "@babbage/tokenator": "^0.2.25",
     "@bsv/sdk": "^1.0.19",
-    "authrite-js": "^0.4.22",
-    "babbage-bsv": "^0.2.4",
-    "pushdrop": "^0.1.50",
+    "authrite-js": "^0.4.23",
+    "babbage-bsv": "^0.2.5",
+    "pushdrop": "^0.1.51",
     "ts2md": "^0.2.1"
   }
 }
