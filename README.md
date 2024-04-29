@@ -16,8 +16,124 @@ Tools for creating and managing UTXO-based tokens
 
 <!--#region ts2md-api-merged-here-->
 
-Links: [API](#api), [Classes](#classes)
+Links: [API](#api), [Interfaces](#interfaces), [Classes](#classes)
 
+### Interfaces
+
+| |
+| --- |
+| [Asset](#interface-asset) |
+| [IncomingPayment](#interface-incomingpayment) |
+| [OverlaySearchResult](#interface-overlaysearchresult) |
+| [OwnershipProof](#interface-ownershipproof) |
+| [SubmitResult](#interface-submitresult) |
+| [TokenForRecipient](#interface-tokenforrecipient) |
+
+Links: [API](#api), [Interfaces](#interfaces), [Classes](#classes)
+
+---
+
+#### Interface: Asset
+
+```ts
+export interface Asset {
+    assetId: string;
+    balance: number;
+    name?: string;
+    iconURL?: string;
+    metadata?: string;
+    incoming?: boolean;
+    incomingAmount?: number;
+    new?: boolean;
+}
+```
+
+Links: [API](#api), [Interfaces](#interfaces), [Classes](#classes)
+
+---
+#### Interface: TokenForRecipient
+
+```ts
+export interface TokenForRecipient {
+    txid: string;
+    vout: number;
+    amount: number;
+    envelope: CreateActionResult;
+    keyID: string;
+    outputScript: string;
+}
+```
+
+Links: [API](#api), [Interfaces](#interfaces), [Classes](#classes)
+
+---
+#### Interface: SubmitResult
+
+```ts
+export interface SubmitResult {
+    status: "auccess";
+    topics: Record<string, number[]>;
+}
+```
+
+Links: [API](#api), [Interfaces](#interfaces), [Classes](#classes)
+
+---
+#### Interface: OverlaySearchResult
+
+```ts
+export interface OverlaySearchResult {
+    inputs: string | null;
+    mapiResponses: string | null;
+    outputScript: string;
+    proof: string | null;
+    rawTx: string;
+    satoshis: number;
+    txid: string;
+    vout: number;
+}
+```
+
+Links: [API](#api), [Interfaces](#interfaces), [Classes](#classes)
+
+---
+#### Interface: IncomingPayment
+
+```ts
+export interface IncomingPayment {
+    txid: string;
+    vout: number;
+    outputScript: string;
+    amount: number;
+    token: TokenForRecipient;
+    sender: string;
+    messageId: string;
+    keyID: string;
+    envelope: CreateActionResult;
+}
+```
+
+Links: [API](#api), [Interfaces](#interfaces), [Classes](#classes)
+
+---
+#### Interface: OwnershipProof
+
+```ts
+export interface OwnershipProof {
+    prover: string;
+    verifier: string;
+    assetId: string;
+    amount: number;
+    tokens: {
+        output: GetTransactionOutputResult;
+        linkage: SpecificKeyLinkageResult;
+    }[];
+}
+```
+
+Links: [API](#api), [Interfaces](#interfaces), [Classes](#classes)
+
+---
 ### Classes
 
 #### Class: BTMS
@@ -29,13 +145,16 @@ export class BTMS {
     confederacyHost: string;
     peerServHost: string;
     tokenator: Tokenator;
-    messageBox: string;
+    tokensMessageBox: string;
+    marketplaceMessageBox: string;
     protocolID: string;
     basket: string;
-    topic: string;
+    tokenTopic: string;
     satoshis: number;
     authrite: Authrite;
-    constructor(confederacyHost = "https://confederacy.babbage.systems", peerServHost = "https://peerserv.babbage.systems", messageBox = "tokens-box", protocolID = "tokens", basket = "tokens", topic = "tokens", satoshis = 1000) 
+    privateKey: string | undefined;
+    marketplaceTopic: string;
+    constructor(confederacyHost = "https://confederacy.babbage.systems", peerServHost = "https://peerserv.babbage.systems", tokensMessageBox = "tokens-box", protocolID = "tokens", basket = "tokens", tokensTopic = "tokens", satoshis = 1000, privateKey?: string, marketplaceMessageBox = "marketplace", marketplaceTopic = "marketplace") 
     async listAssets(): Promise<Asset[]> 
     async issue(amount: number, name: string): Promise<SubmitResult> 
     async send(assetId: string, recipient: string, sendAmount: number, disablePeerServ = false, onPaymentSent = (payment: TokenForRecipient) => { }): Promise<SubmitResult> 
@@ -53,7 +172,18 @@ export class BTMS {
         }[];
     }> 
     async proveOwnership(assetId: string, amount: number, verifier: string): Promise<OwnershipProof> 
-    async verifyOwnership(proof: OwnershipProof): Promise<boolean> 
+    async verifyOwnership(proof: OwnershipProof, useAnyoneKey = false): Promise<boolean> 
+    validateAssetId(assetId: string): boolean 
+    async listAssetForSale(assetId: string, amount: number, desiredAssets: Record<string, number>, description?: string): Promise<SubmitResult> 
+    async findAllAssetsForSale(findMine = false): Promise<MarketplaceEntry[]> 
+    async makeOffer(entry: MarketplaceEntry, assetId: string, amount: number): Promise<void> 
+    async listOutgoingOffers(): Promise<MarketplaceOffer[]> 
+    async cancelOutgoingOffer(offer: MarketplaceOffer): Promise<void> 
+    async listIncomingOffers(forEntry?: MarketplaceEntry): Promise<MarketplaceOffer[]> 
+    async acceptOffer(offer: MarketplaceOffer): Promise<void> 
+    async acknowledgeNewlyAcquiredMarketplaceAssets(): Promise<void> 
+    async rejectOffer(offer: MarketplaceOffer): Promise<void> 
+    async acknowledgeRejection(offer: MarketplaceOffer): Promise<void> 
 }
 ```
 
@@ -66,7 +196,7 @@ export class BTMS {
 BTMS constructor.
 
 ```ts
-constructor(confederacyHost = "https://confederacy.babbage.systems", peerServHost = "https://peerserv.babbage.systems", messageBox = "tokens-box", protocolID = "tokens", basket = "tokens", topic = "tokens", satoshis = 1000) 
+constructor(confederacyHost = "https://confederacy.babbage.systems", peerServHost = "https://peerserv.babbage.systems", tokensMessageBox = "tokens-box", protocolID = "tokens", basket = "tokens", tokensTopic = "tokens", satoshis = 1000, privateKey?: string, marketplaceMessageBox = "marketplace", marketplaceTopic = "marketplace") 
 ```
 
 Argument Details
@@ -75,16 +205,28 @@ Argument Details
   + The confederacy host URL.
 + **peerServHost**
   + The peer service host URL.
-+ **messageBox**
++ **tokensMessageBox**
   + The message box ID.
 + **protocolID**
   + The protocol ID.
 + **basket**
   + The asset basket ID.
-+ **topic**
++ **tokensTopic**
   + The topic associated with the asset.
 + **satoshis**
   + The number of satoshis involved in transactions.
+
+##### Method findAllAssetsForSale
+
+Returns an array of all marketplace entries
+
+```ts
+async findAllAssetsForSale(findMine = false): Promise<MarketplaceEntry[]> 
+```
+
+Returns
+
+An array of all marketplace entries
 
 ##### Method getBalance
 
@@ -123,6 +265,29 @@ Argument Details
   + The ID of the asset.
 + **includeEnvelope**
   + Include the envelope in the result.
+
+##### Method listAssetForSale
+
+Lists an asset on the marketplace for sale
+
+```ts
+async listAssetForSale(assetId: string, amount: number, desiredAssets: Record<string, number>, description?: string): Promise<SubmitResult> 
+```
+
+Returns
+
+Overlay network submission results
+
+Argument Details
+
++ **assetId**
+  + The ID of the asset to list
++ **amount**
+  + The amount you want to sell
++ **desiredAssets**
+  + Assets you would desire to have in return so people can make you an offer
++ **description**
+  + Marketplace listing description
 
 ##### Method listIncomingPayments
 
@@ -166,9 +331,26 @@ Throws
 
 Throws an error if the sender does not have enough tokens.
 
+##### Method validateAssetId
+
+Checks that an asset ID is in the correct format
+
+```ts
+validateAssetId(assetId: string): boolean 
+```
+
+Returns
+
+a boolean indicating asset ID validity
+
+Argument Details
+
++ **assetId**
+  + Asset ID to validate
+
 </details>
 
-Links: [API](#api), [Classes](#classes)
+Links: [API](#api), [Interfaces](#interfaces), [Classes](#classes)
 
 ---
 
