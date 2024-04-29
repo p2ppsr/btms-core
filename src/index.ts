@@ -9,11 +9,9 @@ import {
 } from '@babbage/sdk-ts'
 import { Authrite } from 'authrite-js'
 import Tokenator from '@babbage/tokenator'
-import { BigNumber, Curve, LockingScript, P2PKH, PrivateKey, PublicKey, Transaction, ScriptTemplate, OP, UnlockingScript, TransactionSignature, Signature } from '@bsv/sdk'
+import { BigNumber, Curve, LockingScript, P2PKH, PrivateKey, PublicKey, Transaction, ScriptTemplate, OP, UnlockingScript, TransactionSignature, Signature, Hash, Utils } from '@bsv/sdk'
 import { getPaymentPrivateKey } from 'sendover'
 import { decrypt as CWIDecrypt } from 'cwi-crypto'
-import { toArray } from '@bsv/sdk/dist/types/src/primitives/utils'
-import { sha256 } from '@bsv/sdk/dist/types/src/primitives/Hash'
 import stringify from 'json-stable-stringify'
 
 const ANYONE = '0000000000000000000000000000000000000000000000000000000000000001'
@@ -91,7 +89,7 @@ class BTMSToken implements ScriptTemplate {
       forSelf
     })
     const lockPart = new LockingScript([
-      { op: publicKey.length / 2, data: toArray(publicKey, 'hex') },
+      { op: publicKey.length / 2, data: Utils.toArray(publicKey, 'hex') },
       { op: OP.OP_CHECKSIG }
     ]).toHex()
     const fields: Array<string | Uint8Array> = [
@@ -186,7 +184,7 @@ class BTMSToken implements ScriptTemplate {
           lockTime: tx.lockTime,
           scope: signatureScope
         })
-        const preimageHash = sha256(preimage)
+        const preimageHash = Hash.sha256(preimage)
         const SDKSignature = await createSignature({
           data: Uint8Array.from(preimageHash),
           protocolID,
@@ -260,7 +258,7 @@ class BTMSFundingToken implements ScriptTemplate {
           lockTime: tx.lockTime,
           scope: signatureScope
         })
-        const preimageHash = sha256(preimage)
+        const preimageHash = Hash.sha256(preimage)
         const SDKSignature = await createSignature({
           data: Uint8Array.from(preimageHash),
           protocolID,
@@ -282,7 +280,7 @@ class BTMSFundingToken implements ScriptTemplate {
         })
         return new UnlockingScript([
           { op: sigForScript.length, data: sigForScript },
-          { op: publicKeyString.length / 2, data: toArray(publicKeyString, 'hex') }
+          { op: publicKeyString.length / 2, data: Utils.toArray(publicKeyString, 'hex') }
         ])
       },
       estimateLength: async () => 106
@@ -1424,7 +1422,7 @@ export class BTMS {
       lockTime: 0,
       scope: signatureScope
     })
-    const preimageHash = sha256(preimage)
+    const preimageHash = Hash.sha256(preimage)
     const SDKSignature = await createSignature({
       data: Uint8Array.from(preimageHash),
       protocolID: this.protocolID,
@@ -1446,7 +1444,7 @@ export class BTMS {
     })
     const unlockingScript = new UnlockingScript([
       { op: sigForScript.length, data: sigForScript },
-      { op: publicKeyString.length / 2, data: toArray(publicKeyString, 'hex') }
+      { op: publicKeyString.length / 2, data: Utils.toArray(publicKeyString, 'hex') }
     ]).toHex()
 
     // Spend the offer's funding input in a transaction
