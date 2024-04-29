@@ -16,124 +16,8 @@ Tools for creating and managing UTXO-based tokens
 
 <!--#region ts2md-api-merged-here-->
 
-Links: [API](#api), [Interfaces](#interfaces), [Classes](#classes)
+Links: [API](#api), [Classes](#classes)
 
-### Interfaces
-
-| |
-| --- |
-| [Asset](#interface-asset) |
-| [IncomingPayment](#interface-incomingpayment) |
-| [OverlaySearchResult](#interface-overlaysearchresult) |
-| [OwnershipProof](#interface-ownershipproof) |
-| [SubmitResult](#interface-submitresult) |
-| [TokenForRecipient](#interface-tokenforrecipient) |
-
-Links: [API](#api), [Interfaces](#interfaces), [Classes](#classes)
-
----
-
-#### Interface: Asset
-
-```ts
-export interface Asset {
-    assetId: string;
-    balance: number;
-    name?: string;
-    iconURL?: string;
-    metadata?: string;
-    incoming?: boolean;
-    incomingAmount?: number;
-    new?: boolean;
-}
-```
-
-Links: [API](#api), [Interfaces](#interfaces), [Classes](#classes)
-
----
-#### Interface: TokenForRecipient
-
-```ts
-export interface TokenForRecipient {
-    txid: string;
-    vout: number;
-    amount: number;
-    envelope: CreateActionResult;
-    keyID: string;
-    outputScript: string;
-}
-```
-
-Links: [API](#api), [Interfaces](#interfaces), [Classes](#classes)
-
----
-#### Interface: SubmitResult
-
-```ts
-export interface SubmitResult {
-    status: "auccess";
-    topics: Record<string, number[]>;
-}
-```
-
-Links: [API](#api), [Interfaces](#interfaces), [Classes](#classes)
-
----
-#### Interface: OverlaySearchResult
-
-```ts
-export interface OverlaySearchResult {
-    inputs: string | null;
-    mapiResponses: string | null;
-    outputScript: string;
-    proof: string | null;
-    rawTx: string;
-    satoshis: number;
-    txid: string;
-    vout: number;
-}
-```
-
-Links: [API](#api), [Interfaces](#interfaces), [Classes](#classes)
-
----
-#### Interface: IncomingPayment
-
-```ts
-export interface IncomingPayment {
-    txid: string;
-    vout: number;
-    outputScript: string;
-    amount: number;
-    token: TokenForRecipient;
-    sender: string;
-    messageId: string;
-    keyID: string;
-    envelope: CreateActionResult;
-}
-```
-
-Links: [API](#api), [Interfaces](#interfaces), [Classes](#classes)
-
----
-#### Interface: OwnershipProof
-
-```ts
-export interface OwnershipProof {
-    prover: string;
-    verifier: string;
-    assetId: string;
-    amount: number;
-    tokens: {
-        output: GetTransactionOutputResult;
-        linkage: SpecificKeyLinkageResult;
-    }[];
-}
-```
-
-Links: [API](#api), [Interfaces](#interfaces), [Classes](#classes)
-
----
 ### Classes
 
 #### Class: BTMS
@@ -284,7 +168,7 @@ Throws an error if the sender does not have enough tokens.
 
 </details>
 
-Links: [API](#api), [Interfaces](#interfaces), [Classes](#classes)
+Links: [API](#api), [Classes](#classes)
 
 ---
 
