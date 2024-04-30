@@ -685,7 +685,7 @@ export class BTMS {
     })
 
     const tokenForRecipient: TokenForRecipient = {
-      txid: action.txid,
+      txid: verifyTruthy(action.txid),
       vout: 0,
       amount: this.satoshis,
       envelope: {
@@ -823,6 +823,7 @@ export class BTMS {
       labels: [assetId.replace('.', ' ')],
       transaction: {
         ...payment.envelope,
+        rawTx: verifyTruthy(payment.envelope.rawTx),
         outputs: [{
           vout: 0,
           basket: this.basket,
@@ -865,6 +866,7 @@ export class BTMS {
     })
     inputs[payment.txid] = {
       ...payment.envelope,
+      rawTx: verifyTruthy(payment.envelope.rawTx),
       inputs: typeof payment.envelope.inputs === 'string'
         ? JSON.parse(payment.envelope.inputs)
         : payment.envelope.inputs,
@@ -898,7 +900,7 @@ export class BTMS {
     })
 
     const tokenForRecipient: TokenForRecipient = {
-      txid: action.txid,
+      txid: verifyTruthy(action.txid),
       vout: 0,
       amount: this.satoshis,
       envelope: {
@@ -1330,7 +1332,7 @@ export class BTMS {
 
     // Add the funding input
     tx.addInput({
-      sourceTransaction: Transaction.fromHex(fundingAction.rawTx),
+      sourceTransaction: Transaction.fromHex(verifyTruthy(fundingAction.rawTx)),
       sourceOutputIndex: 0,
       sequence: 0xffffffff,
       unlockingScriptTemplate: fundingTemplate.unlock(this.protocolID, fundingKeyID, entry.seller)
@@ -1413,7 +1415,7 @@ export class BTMS {
   // cancel outgoing offer
   async cancelOutgoingOffer(offer: MarketplaceOffer): Promise<void> {
     // Compute an unlocking script
-    const fundingTX = Transaction.fromHex(offer.buyerFundingEnvelope.rawTx)
+    const fundingTX = Transaction.fromHex(verifyTruthy(offer.buyerFundingEnvelope.rawTx))
     const fundingTXID = offer.buyerFundingEnvelope.txid || fundingTX.id('hex') as string
     const signatureScope = TransactionSignature.SIGHASH_FORKID | TransactionSignature.SIGHASH_NONE | TransactionSignature.SIGHASH_ANYONECANPAY
     const preimage = TransactionSignature.format({
@@ -1460,6 +1462,7 @@ export class BTMS {
       inputs: {
         [fundingTXID]: {
           ...verifyTruthy(offer.buyerFundingEnvelope),
+          rawTx: verifyTruthy(offer.buyerFundingEnvelope.rawTx),
           outputsToRedeem: [{
             index: 0,
             unlockingScript
@@ -1533,8 +1536,8 @@ export class BTMS {
     const finalTX = tx.toHex()
     // Assemble inputs and SPV envelope
     const inputs: Record<string, EnvelopeApi> = {}
-    const fundingTXID = offer.buyerFundingEnvelope.txid || Transaction.fromHex(offer.buyerFundingEnvelope.rawTx).id('hex') as string
-    inputs[fundingTXID] = offer.buyerFundingEnvelope
+    const fundingTXID = offer.buyerFundingEnvelope.txid || Transaction.fromHex(verifyTruthy(offer.buyerFundingEnvelope.rawTx)).id('hex') as string
+    inputs[fundingTXID] = offer.buyerFundingEnvelope as EnvelopeApi
     for (let i = 0; i < offer.sellerEntry.ownershipProof.tokens.length; i++) {
       const token = offer.sellerEntry.ownershipProof.tokens[i]
       if (!inputs[token.output.txid]) {
@@ -1563,6 +1566,7 @@ export class BTMS {
       labels: [offer.buyerProof.assetId.replace('.', ' ')],
       transaction: {
         ...action,
+        rawTx: verifyTruthy(action.rawTx),
         outputs: [{
           vout: 1, // TODO: Verify this!
           basket: this.basket,
@@ -1599,6 +1603,7 @@ export class BTMS {
           labels: [parsedAsset.offer.sellerEntry.assetId.replace('.', ' ')],
           transaction: {
             ...parsedAsset.action,
+            rawTx: verifyTruthy(parsedAsset.action.rawTx),
             outputs: [{
               vout: 0, // TODO: Verify this!
               basket: this.basket,
@@ -1627,7 +1632,7 @@ export class BTMS {
     await this.tokenator.acknowledgeMessages({
       messageIds: [offer.messageId as string]
     })
-    const fundingTXID = offer.buyerFundingEnvelope.txid || Transaction.fromHex(offer.buyerFundingEnvelope.rawTx).id('hex') as string
+    const fundingTXID = offer.buyerFundingEnvelope.txid || Transaction.fromHex(verifyTruthy(offer.buyerFundingEnvelope.rawTx)).id('hex') as string
     await this.tokenator.sendMessage({
       messageBox: `${this.marketplaceMessageBox}_reject`,
       recipient: offer.buyerProof.prover,

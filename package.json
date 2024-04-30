@@ -46,7 +46,7 @@
     "typescript": "^4.9.5"
   },
   "dependencies": {
-    "@babbage/sdk-ts": "^0.2.13",
+    "@babbage/sdk-ts": "^0.2.19",
     "@babbage/tokenator": "^0.2.13",
     "@bsv/sdk": "^1.0.20",
     "authrite-js": "^0.4.12",
