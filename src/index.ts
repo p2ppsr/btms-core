@@ -12,9 +12,14 @@ import Tokenator from '@babbage/tokenator'
 import { BigNumber, Curve, LockingScript, P2PKH, PrivateKey, PublicKey, Transaction, ScriptTemplate, OP, UnlockingScript, TransactionSignature, Signature } from '@bsv/sdk'
 import { getPaymentPrivateKey } from 'sendover'
 import { decrypt as CWIDecrypt } from 'cwi-crypto'
-import { toArray } from '@bsv/sdk/dist/types/src/primitives/utils'
-import { sha256 } from '@bsv/sdk/dist/types/src/primitives/Hash'
+import { Utils } from '@bsv/sdk'
+import { Hash } from '@bsv/sdk'
 import stringify from 'json-stable-stringify'
+
+const toArray = Utils.toArray
+export const sha256 = (msg: number[] | string, enc?: 'hex' | 'utf8'): number[] => {
+  return new Hash.SHA256().update(msg, enc).digest()
+}
 
 const ANYONE = '0000000000000000000000000000000000000000000000000000000000000001'
 
