@@ -10,9 +10,10 @@ import {
 import { Authrite } from 'authrite-js'
 import Tokenator from '@babbage/tokenator'
 import { BigNumber, Curve, LockingScript, P2PKH, PrivateKey, PublicKey, Transaction, ScriptTemplate, OP, UnlockingScript, TransactionSignature, Signature, Hash, Utils } from '@bsv/sdk'
-import { getPaymentPrivateKey } from 'sendover'
+import { getPaymentAddress, getPaymentPrivateKey } from 'sendover'
 import { decrypt as CWIDecrypt } from 'cwi-crypto'
 import stringify from 'json-stable-stringify'
+import bsv = require('babbage-bsv')
 
 const ANYONE = '0000000000000000000000000000000000000000000000000000000000000001'
 
@@ -678,7 +679,7 @@ export class BTMS {
     })
 
     const tokenForRecipient: TokenForRecipient = {
-      txid: action.txid,
+      txid: action.txid!,
       vout: 0,
       amount: this.satoshis,
       envelope: {
@@ -811,11 +812,12 @@ export class BTMS {
     // Submit transaction
     await submitDirectTransaction({ // TODO: signing strategy
       senderIdentityKey: payment.sender,
-      note: `Receive ${decodedToken.fields[1]} ${parsedMetadata.name} from ${payment.sender}`,
+      note: `Receive ${decodedToken.fields[1] as string} ${parsedMetadata.name} from ${payment.sender}`,
       amount: this.satoshis,
       labels: [assetId.replace('.', ' ')],
       transaction: {
         ...payment.envelope,
+        rawTx: payment.envelope.rawTx as string,
         outputs: [{
           vout: 0,
           basket: this.basket,
@@ -823,13 +825,13 @@ export class BTMS {
           tags: ['owner self'],
           customInstructions: JSON.stringify({
             sender: payment.sender,
-            keyID: payment.keyID || '1'
+            keyID: typeof payment !== 'undefined' ? payment.keyID : '1'
           })
         }]
       }
     })
 
-    if (payment.messageId) {
+    if (typeof payment.messageId !== 'undefined' && payment.messageId !== '') {
       await this.tokenator.acknowledgeMessage({
         messageIds: [payment.messageId]
       })
@@ -853,11 +855,12 @@ export class BTMS {
       lockingScript: payment.outputScript,
       outputAmount: this.satoshis,
       protocolID: this.protocolID,
-      keyID: payment.keyID || '1',
+      keyID: typeof payment !== 'undefined' ? payment.keyID : '1',
       counterparty: payment.sender
     })
     inputs[payment.txid] = {
       ...payment.envelope,
+      rawTx: payment.envelope.rawTx as string,
       inputs: typeof payment.envelope.inputs === 'string'
         ? JSON.parse(payment.envelope.inputs)
         : payment.envelope.inputs,
@@ -891,7 +894,7 @@ export class BTMS {
     })
 
     const tokenForRecipient: TokenForRecipient = {
-      txid: action.txid,
+      txid: action.txid as string,
       vout: 0,
       amount: this.satoshis,
       envelope: {
@@ -910,7 +913,7 @@ export class BTMS {
       })
     })
 
-    if (payment.messageId) {
+    if (typeof payment.messageId !== 'undefined' && payment.messageId !== '') {
       await this.tokenator.acknowledgeMessage({
         messageIds: [payment.messageId]
       })
@@ -1191,17 +1194,41 @@ export class BTMS {
     const anyonePub = new PrivateKey(ANYONE, 'hex').toPublicKey().toString()
     const proof = await this.proveOwnership(assetId, amount, anyonePub)
     // Compose a PushDrop token
+    // const token = await pushdrop.create({
+    //   fields: [
+    //     Buffer.from(JSON.stringify(proof), 'utf8'),
+    //     Buffer.from(JSON.stringify(desiredAssets), 'utf8'),
+    //     Buffer.from(description || '', 'utf8')
+    //   ],
+    //   protocolID: [2, 'marketplace'],
+    //   keyID: '1',
+    //   counterparty: 'anyone',
+    //   ownedByCreator: true
+    // })
+
+    const identityKey = await getPublicKey({ identityKey: true })
+
+    // Here's the part where we create the new Bitcoin token.
+    // This uses a library called PushDrop, which lets you attach data
+    // payloads to Bitcoin token outputs. Then, you can redeem / unlock the
+    // tokens later.
     const token = await pushdrop.create({
-      fields: [
+      fields: [ // The "fields" are the data payload to attach to the token.
         Buffer.from(JSON.stringify(proof), 'utf8'),
+        Buffer.from(identityKey, 'hex'),
         Buffer.from(JSON.stringify(desiredAssets), 'utf8'),
         Buffer.from(description || '', 'utf8')
       ],
+      // The same "postboard" protocol and key ID can be used to sign and
+      // lock this new Bitcoin PushDrop token.
       protocolID: 'marketplace',
       keyID: '1',
-      counterparty: anyonePub,
+      counterparty: 'anyone',
       ownedByCreator: true
     })
+
+    debugger
+
     // Create a transaction
     const action = await createAction({
       description: 'List assets on the marketplace',
@@ -1210,6 +1237,38 @@ export class BTMS {
         script: token
       }]
     })
+
+    const parsedTransaction = new bsv.Transaction(action.rawTx)
+    const output = parsedTransaction.outputs[0]
+
+    const parsedToken = pushdrop.decode({
+      script: output.script.toHex(),
+      fieldFormat: 'buffer'
+    })
+    const parsedProof = JSON.parse(parsedToken.fields[0].toString('utf8'))
+
+    const expected = getPaymentAddress({
+      senderPrivateKey: '0000000000000000000000000000000000000000000000000000000000000001',
+      recipientPublicKey: parsedToken.fields[1].toString('hex'),
+      invoiceNumber: '2-marketplace-1',
+      returnType: 'publicKey'
+    })
+    // // Ensure result.lockingPublicKey came from prover
+    // const expected = getPaymentAddress({
+    //   senderPrivateKey: ANYONE,
+    //   recipientPublicKey: parsedProof.prover,
+    //   invoiceNumber: '2-marketplace-1',
+    //   returnType: 'publicKey'
+    // })
+    console.log('claimed key', parsedToken.fields[1].toString('hex'))
+    console.log('expected child', expected)
+    console.log('actual child', parsedToken.lockingPublicKey)
+    if (expected !== parsedToken.lockingPublicKey) {
+      const e = new Error('Unable to verify identity public key links to signing key')
+      console.error('Rejecting output for ownership proof mismatch')
+      throw e
+    }
+
     // Send the transaction to the oerlay
     return await this.submitToMarketplaceOverlay(action)
   }
@@ -1323,7 +1382,7 @@ export class BTMS {
 
     // Add the funding input
     tx.addInput({
-      sourceTransaction: Transaction.fromHex(fundingAction.rawTx),
+      sourceTransaction: Transaction.fromHex(fundingAction.rawTx as string),
       sourceOutputIndex: 0,
       sequence: 0xffffffff,
       unlockingScriptTemplate: fundingTemplate.unlock(this.protocolID, fundingKeyID, entry.seller)
@@ -1406,7 +1465,7 @@ export class BTMS {
   // cancel outgoing offer
   async cancelOutgoingOffer(offer: MarketplaceOffer): Promise<void> {
     // Compute an unlocking script
-    const fundingTX = Transaction.fromHex(offer.buyerFundingEnvelope.rawTx)
+    const fundingTX = Transaction.fromHex(offer.buyerFundingEnvelope.rawTx as string)
     const fundingTXID = offer.buyerFundingEnvelope.txid || fundingTX.id('hex') as string
     const signatureScope = TransactionSignature.SIGHASH_FORKID | TransactionSignature.SIGHASH_NONE | TransactionSignature.SIGHASH_ANYONECANPAY
     const preimage = TransactionSignature.format({
@@ -1453,6 +1512,7 @@ export class BTMS {
       inputs: {
         [fundingTXID]: {
           ...verifyTruthy(offer.buyerFundingEnvelope),
+          rawTx: offer.buyerFundingEnvelope.rawTx as string,
           outputsToRedeem: [{
             index: 0,
             unlockingScript
@@ -1467,7 +1527,7 @@ export class BTMS {
       messageBox: this.marketplaceMessageBox
     })
     const results: MarketplaceOffer[] = []
-    let forEntryString: string | undefined = undefined
+    let forEntryString: string | undefined
     if (typeof forEntry !== 'undefined') {
       forEntryString = stringify(forEntry)
     }
@@ -1526,17 +1586,23 @@ export class BTMS {
     const finalTX = tx.toHex()
     // Assemble inputs and SPV envelope
     const inputs: Record<string, EnvelopeApi> = {}
-    const fundingTXID = offer.buyerFundingEnvelope.txid || Transaction.fromHex(offer.buyerFundingEnvelope.rawTx).id('hex') as string
-    inputs[fundingTXID] = offer.buyerFundingEnvelope
+    const fundingTXID =
+      (typeof offer.buyerFundingEnvelope.txid === 'string' && offer.buyerFundingEnvelope.txid !== '')
+        ? offer.buyerFundingEnvelope.txid
+        : Transaction.fromHex(offer.buyerFundingEnvelope.rawTx as string).id('hex')
+    inputs[fundingTXID] = {
+      ...offer.buyerFundingEnvelope,
+      rawTx: offer.buyerFundingEnvelope.rawTx as string
+    }
     for (let i = 0; i < offer.sellerEntry.ownershipProof.tokens.length; i++) {
       const token = offer.sellerEntry.ownershipProof.tokens[i]
-      if (!inputs[token.output.txid]) {
+      if (typeof inputs[token.output.txid] === 'undefined') {
         inputs[token.output.txid] = token.output.envelope as EnvelopeApi
       }
     }
     for (let i = 0; i < offer.buyerProof.tokens.length; i++) {
       const token = offer.buyerProof.tokens[i]
-      if (!inputs[token.output.txid]) {
+      if (typeof inputs[token.output.txid] === 'undefined') {
         inputs[token.output.txid] = token.output.envelope as EnvelopeApi
       }
     }
@@ -1544,7 +1610,7 @@ export class BTMS {
       inputs,
       rawTx: finalTX,
       mapiResponses: [],
-      txid: tx.id('hex') as string
+      txid: tx.id('hex')
     }
     // Submit action to overlay
     await this.submitToTokenOverlay(action)
@@ -1556,6 +1622,7 @@ export class BTMS {
       labels: [offer.buyerProof.assetId.replace('.', ' ')],
       transaction: {
         ...action,
+        rawTx: action.rawTx as string,
         outputs: [{
           vout: 1, // TODO: Verify this!
           basket: this.basket,
@@ -1563,7 +1630,7 @@ export class BTMS {
           tags: ['owner self'],
           customInstructions: JSON.stringify({
             sender: offer.buyerProof.prover,
-            keyID: offer.desiredSellerKeyID || '1'
+            keyID: offer.desiredSellerKeyID !== 'undefined' && offer.desiredSellerKeyID !== '' ? offer.desiredSellerKeyID : '1'
           })
         }]
       }
@@ -1592,6 +1659,7 @@ export class BTMS {
           labels: [parsedAsset.offer.sellerEntry.assetId.replace('.', ' ')],
           transaction: {
             ...parsedAsset.action,
+            rawTx: parsedAsset.action.rawTx as string,
             outputs: [{
               vout: 0, // TODO: Verify this!
               basket: this.basket,
@@ -1620,7 +1688,7 @@ export class BTMS {
     await this.tokenator.acknowledgeMessages({
       messageIds: [offer.messageId as string]
     })
-    const fundingTXID = offer.buyerFundingEnvelope.txid || Transaction.fromHex(offer.buyerFundingEnvelope.rawTx).id('hex') as string
+    const fundingTXID = offer.buyerFundingEnvelope.txid as string ? (offer.buyerFundingEnvelope.txid || Transaction.fromHex(offer.buyerFundingEnvelope.rawTx as string).id('hex') as string) : ''
     await this.tokenator.sendMessage({
       messageBox: `${this.marketplaceMessageBox}_reject`,
       recipient: offer.buyerProof.prover,
