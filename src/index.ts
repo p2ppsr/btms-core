@@ -348,7 +348,7 @@ export interface OwnershipProof {
   }[]
 }
 
-interface MarketplaceEntry {
+export interface MarketplaceEntry {
   assetId: string
   amount: number
   seller: string
@@ -358,7 +358,7 @@ interface MarketplaceEntry {
   metadata: string
 }
 
-interface MarketplaceOffer {
+export interface MarketplaceOffer {
   buyerOffersAssetId: string
   buyerOffersAmount: number
   buyerProof: OwnershipProof
