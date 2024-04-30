@@ -34,18 +34,21 @@
   "homepage": "https://github.com/p2ppsr/btms-core#readme",
   "devDependencies": {
     "@types/bn.js": "^5.1.1",
+    "@types/jest": "^29.4.0",
     "@types/node": "^18.7.4",
     "@typescript-eslint/eslint-plugin": "^5.52.0",
     "@typescript-eslint/parser": "^5.52.0",
     "eslint": "^8.34.0",
-    "jest": "^26.6.3",
+    "jest": "^29.4.3",
+    "ts-jest": "^29.0.5",
+    "ts-node": "^10.9.1",
     "ts-standard": "^12.0.2",
     "typescript": "^4.9.5"
   },
   "dependencies": {
     "@babbage/sdk-ts": "^0.2.13",
     "@babbage/tokenator": "^0.2.13",
-    "@bsv/sdk": "^1.0.18",
+    "@bsv/sdk": "^1.0.20",
     "authrite-js": "^0.4.12",
     "babbage-bsv": "^0.2.4",
     "cwi-crypto": "^0.1.8",
