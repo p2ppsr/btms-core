@@ -1,0 +1,78 @@
+services:
+  overlay-dev-container:
+    build:
+      context: ..
+      dockerfile: ./local-data/overlay-dev-container/Dockerfile
+    restart: always
+    ports:
+      - 8080:8080
+    environment:
+      MONGO_URL: mongodb://mongo:27017/overlay-db
+      KNEX_URL: mysql://overlayAdmin:overlay123@mysql:3306/overlay
+      SERVER_PRIVATE_KEY: 3c164fce7834d831bbc96975f9717ad8af7d94d7df0d36de0b4c13e009540589
+      HOSTING_URL: localhost:8080
+      NETWORK: mainnet
+      REQUEST_LOGGING: "true"
+      GASP_SYNC: "false"
+      LOG_TIME: "false"
+      LOG_PREFIX: "[LARS OVERLAY ENGINE] "
+      THROW_ON_BROADCAST_FAIL: "false"
+      SYNC_CONFIG_JSON: "{}"
+    depends_on:
+      - mysql
+      - mongo
+    volumes:
+      - /Users/bob/btms-core-org copy 8/btms-core/backend/src:/app/src
+      - /Users/bob/btms-core-org copy
+        8/btms-core/backend/artifacts:/app/artifacts
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_DATABASE: overlay
+      MYSQL_USER: overlayAdmin
+      MYSQL_PASSWORD: overlay123
+      MYSQL_ROOT_PASSWORD: rootpassword
+    ports:
+      - 3306:3306
+    volumes:
+      - /Users/bob/btms-core-org copy 8/btms-core/local-data/mysql:/var/lib/mysql
+    healthcheck:
+      test:
+        - CMD
+        - mysqladmin
+        - ping
+        - -h
+        - localhost
+      interval: 10s
+      timeout: 5s
+      retries: 3
+  adminer:
+    image: adminer
+    restart: always
+    ports:
+      - 8081:8080
+    environment:
+      ADMINER_DEFAULT_SERVER: mysql
+    depends_on:
+      - mysql
+  mongo:
+    image: mongo:6.0
+    ports:
+      - 27017:27017
+    volumes:
+      - /Users/bob/btms-core-org copy 8/btms-core/local-data/mongo:/data/db
+    command:
+      - mongod
+      - --quiet
+  mongoexpress:
+    image: mongo-express
+    restart: always
+    ports:
+      - 8082:8081
+    environment:
+      ME_CONFIG_MONGODB_SERVER: mongo
+      ME_CONFIG_MONGODB_PORT: "27017"
+      ME_CONFIG_BASICAUTH_USERNAME: ""
+      ME_CONFIG_BASICAUTH_PASSWORD: ""
+    depends_on:
+      - mongo

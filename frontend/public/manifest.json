@@ -1,0 +1,58 @@
+{
+  "short_name": "BTMS",
+  "name": "BTMS",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#000000",
+  "background_color": "#ffffff",
+  "babbage": {
+    "groupPermissions": {
+      "protocolPermissions": [
+        {
+          "protocolID": [
+            1,
+            "identity key"
+          ],
+          "description": "Allows the app to know who you are."
+        },
+        {
+          "protocolID": [
+            2,
+            "authrite message signature"
+          ],
+          "counterparty": "03b8c46a08f91f9493049456ae58f18d135ce6eaa2100fb2d890d42a7f25f4f531",
+          "description": "Allows for sending transactions to the overlay network."
+        },
+        {
+          "protocolID": [
+            2,
+            "authrite message signature"
+          ],
+          "counterparty": "025e6f25cdd20ba4be4abf3d1966a2878019257952bd99f8455af072f475fcce02",
+          "description": "Allows for sending transactions to the overlay network."
+        },
+        {
+          "protocolID": [
+            2,
+            "tokens"
+          ],
+          "counterparty": "self",
+          "description": "Allows the app to manage the tokens you own."
+        }
+      ],
+      "basketAccess": [
+        {
+          "basket": "tokens",
+          "description": "Contains the tokens you own."
+        }
+      ]
+    }
+  }
+}

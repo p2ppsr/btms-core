@@ -1,0 +1,21 @@
+{
+  "name": "btms-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "tsx watch src/btms/run-btms.ts"
+  },
+  "dependencies": {
+    "@bsv/lars": "^1.5.7",
+    "@bsv/overlay": "^0.4.0",
+    "@bsv/sdk": "^1.8.13",
+    "json-stable-stringify": "^1.0.2"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.2"
+  }
+}

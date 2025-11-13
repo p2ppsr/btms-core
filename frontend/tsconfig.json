@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "es2017",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "sourceMap": true,
+    "outDir": "./out",
+    "allowJs": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "noImplicitAny": false,
+    "declaration": true,
+    "declarationMap": true,
+    "rootDir": ".",
+    "composite": true,
+    "noImplicitOverride": true,
+    "jsx": "react-jsx",
+
+    // 👇 make TS resolve from src/ first
+    "baseUrl": "src",
+    "paths": {
+      "btms-core/dist/frontend/src/btms": ["btms/index.ts"],
+      "btms-core/dist/frontend/src/btms/index.js": ["btms/index.ts"]
+    }
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "jest.config.ts"]
+}
