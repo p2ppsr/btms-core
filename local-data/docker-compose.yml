@@ -22,9 +22,8 @@ services:
       - mysql
       - mongo
     volumes:
-      - /Users/bob/btms-core-org copy 8/btms-core/backend/src:/app/src
-      - /Users/bob/btms-core-org copy
-        8/btms-core/backend/artifacts:/app/artifacts
+      - /Users/bob/btms-clean/backend/src:/app/src
+      - /Users/bob/btms-clean/backend/artifacts:/app/artifacts
   mysql:
     image: mysql:8.0
     environment:
@@ -35,7 +34,7 @@ services:
     ports:
       - 3306:3306
     volumes:
-      - /Users/bob/btms-core-org copy 8/btms-core/local-data/mysql:/var/lib/mysql
+      - /Users/bob/btms-clean/local-data/mysql:/var/lib/mysql
     healthcheck:
       test:
         - CMD
@@ -60,7 +59,7 @@ services:
     ports:
       - 27017:27017
     volumes:
-      - /Users/bob/btms-core-org copy 8/btms-core/local-data/mongo:/data/db
+      - /Users/bob/btms-clean/local-data/mongo:/data/db
     command:
       - mongod
       - --quiet

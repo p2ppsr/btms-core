@@ -1,24 +1,24 @@
-import { createTheme } from '@mui/material/styles';
+import { createTheme } from "@mui/material/styles";
 
 // Define a custom theme with dark mode configuration
 const web3Theme = createTheme({
   palette: {
-    mode: 'dark', // Use a dark theme as a base
+    mode: "dark", // Use a dark theme as a base
     primary: {
-      main: '#fff', // white color for primary elements
+      main: "#fff", // white color for primary elements
     },
     secondary: {
-      main: '#7e57c2', // Soft purple for secondary elements
+      main: "#7e57c2", // Soft purple for secondary elements
     },
     error: {
-      main: '#ff3860', // Vibrant red for errors
+      main: "#ff3860", // Vibrant red for errors
     },
     background: {
-      default: '#121212', // Dark background color
-      paper: '#242424', // Slightly lighter shade for paper elements
+      default: "#121212", // Dark background color
+      paper: "#242424", // Slightly lighter shade for paper elements
     },
     text: {
-      primary: '#ffffff', // White text color
+      primary: "#ffffff", // White text color
     },
   },
   typography: {
@@ -27,17 +27,17 @@ const web3Theme = createTheme({
       fontWeight: 700, // Bold headers
     },
     button: {
-      textTransform: 'none', // Buttons with regular casing
-      borderRadius: '15px', 
+      textTransform: "none", // Buttons with regular casing
+      borderRadius: "15px",
     },
   },
   components: {
     MuiTextField: {
       styleOverrides: {
         root: {
-          '& .MuiOutlinedInput-root': {
-            '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-              borderColor: '#ffffff', // Change focused border color to white
+          "& .MuiOutlinedInput-root": {
+            "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
+              borderColor: "#ffffff", // Change focused border color to white
             },
           },
         },
@@ -46,38 +46,38 @@ const web3Theme = createTheme({
     MuiButton: {
       styleOverrides: {
         root: {
-          borderRadius: '15px', // Maximum radius for curved buttons
-          whiteSpace: 'nowrap'
+          borderRadius: "15px", // Maximum radius for curved buttons
+          whiteSpace: "nowrap",
         },
       },
       variants: [
         {
-          props: { variant: 'contained', color: 'primary' },
+          props: { variant: "contained", color: "primary" },
           style: {
-            color: '#000000', // Black text for dark mode contained buttons
-            backgroundColor: '#ffffff', // White background for dark mode contained buttons
-            '&:hover': {
-              backgroundColor: '#e0e0e0', // Light gray background on hover for dark mode
+            color: "#000000", // Black text for dark mode contained buttons
+            backgroundColor: "#ffffff", // White background for dark mode contained buttons
+            "&:hover": {
+              backgroundColor: "#e0e0e0", // Light gray background on hover for dark mode
             },
           },
         },
         {
-          props: { variant: 'contained', color: 'secondary' },
+          props: { variant: "contained", color: "secondary" },
           style: {
-            color: '#ffffff', // White text for dark mode secondary contained buttons
-            backgroundColor: '#7e57c2',
-            '&:hover': {
-              backgroundColor: '#9575cd', // Lighter purple background on hover for dark mode
+            color: "#ffffff", // White text for dark mode secondary contained buttons
+            backgroundColor: "#7e57c2",
+            "&:hover": {
+              backgroundColor: "#9575cd", // Lighter purple background on hover for dark mode
             },
           },
         },
         {
-          props: { variant: 'contained' },
+          props: { variant: "contained" },
           style: {
-            color: '#000000', // Black text for dark mode default contained buttons
-            backgroundColor: '#424242', // Darker background for dark mode default contained buttons
-            '&:hover': {
-              backgroundColor: '#616161', // Lighter gray background on hover for dark mode
+            color: "#000000", // Black text for dark mode default contained buttons
+            backgroundColor: "#424242", // Darker background for dark mode default contained buttons
+            "&:hover": {
+              backgroundColor: "#616161", // Lighter gray background on hover for dark mode
             },
           },
         },

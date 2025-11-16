@@ -1,30 +1,35 @@
-import React, { useEffect, useState } from 'react';
-import { TextField, Grid } from '@mui/material';
-import { ThemeProvider, useTheme } from '@mui/material/styles';
-import web3Theme from '../theme';
-import { isStringNumber } from '../utils/general'
+import React, { useEffect, useState } from "react";
+import { TextField, Grid } from "@mui/material";
+import { ThemeProvider, useTheme } from "@mui/material/styles";
+import web3Theme from "../theme";
+import { isStringNumber } from "../utils/general";
+import { SatoshiValue } from "@bsv/sdk";
 
 interface InputAmountProps {
-  dbg?: boolean
-  isOffer: boolean
-  isAccept: boolean
-  balance: number;
+  dbg?: boolean;
+  isOffer: boolean;
+  isAccept: boolean;
+  balance: SatoshiValue;
   isNew: boolean;
   disable: boolean;
-  assetSelected: boolean
-  resetField: boolean
+  assetSelected: boolean;
+  resetField: boolean;
   setAddAssetDisabled: React.Dispatch<React.SetStateAction<boolean>>;
-  unsetResetInputAmount: () => void
-  handleAddAssets: (amount: number) => void
-  handleInputAmountFocused: (focused: boolean, isOffer: boolean, isAccept: boolean) => void
+  unsetResetInputAmount: () => void;
+  handleAddAssets: (amount: SatoshiValue) => void;
+  handleInputAmountFocused: (
+    focused: boolean,
+    isOffer: boolean,
+    isAccept: boolean,
+  ) => void;
 }
 
-const SELECT_ASSET_TEXT = 'Select an asset'
-const FLASH_WARNING_PERIOD_MSECS: number = 500
-const AMOUNT_TEXT: string = 'Enter amount...'
+const SELECT_ASSET_TEXT = "Select an asset";
+const FLASH_WARNING_PERIOD_MSECS: number = 500;
+const AMOUNT_TEXT: string = "Enter amount...";
 
 const InputAmount: React.FC<InputAmountProps> = ({
-  dbg=false,
+  dbg = false,
   isOffer,
   isAccept,
   balance = 0,
@@ -35,21 +40,22 @@ const InputAmount: React.FC<InputAmountProps> = ({
   setAddAssetDisabled,
   unsetResetInputAmount,
   handleAddAssets,
-  handleInputAmountFocused
+  handleInputAmountFocused,
 }) => {
-	dbg && console.log('InputAmount:isOffer=', isOffer, ',isAccept=', isAccept)
-	isOffer === isAccept && console.error('Can only have isOffer true or isAccept true')
+  dbg && console.log("InputAmount:isOffer=", isOffer, ",isAccept=", isAccept);
+  isOffer === isAccept &&
+    console.error("Can only have isOffer true or isAccept true");
 
-  const [$isOffer, $setIsOffer] = useState<boolean>(isOffer)
-  const [$isAccept, $setIsAccept] = useState<boolean>(isAccept)
-  const [value, setValue] = useState<string>(AMOUNT_TEXT)
-	const [focused, setFocused] = useState<boolean>(false)
+  const [$isOffer, $setIsOffer] = useState<boolean>(isOffer);
+  const [$isAccept, $setIsAccept] = useState<boolean>(isAccept);
+  const [value, setValue] = useState<string>(AMOUNT_TEXT);
+  const [focused, setFocused] = useState<boolean>(false);
   const [disabled, setDisabled] = useState<boolean>(disable);
   const [validatedAmount, setValidatedAmount] = useState<boolean>(false);
 
   //const [reset, setReset] = useState<boolean>(false);
 
-    /*
+  /*
   console.log('assetSelected=', assetSelected)
   console.log('balance=', balance)
   console.log('disabled=', disabled)
@@ -58,20 +64,21 @@ const InputAmount: React.FC<InputAmountProps> = ({
   console.log('resetField=', resetField)
   console.log('')
   */
-    // Use useEffect to perform actions when `reset` state changes
+  // Use useEffect to perform actions when `reset` state changes
   // Use useEffect to perform actions when `resetField` changes
   useEffect(() => {
-    dbg && console.log('InputAmount:useEffect()')
+    dbg && console.log("InputAmount:useEffect()");
     if (resetField) {
-      dbg && console.log('InputAmount:value=', value)
+      dbg && console.log("InputAmount:value=", value);
       if (validatedAmount) {
-        dbg && console.log('InputAmount:call handleAddAssets(', Number(value), ')')
-        handleAddAssets(Number(value))
+        dbg &&
+          console.log("InputAmount:call handleAddAssets(", Number(value), ")");
+        handleAddAssets(Number(value));
       }
       setAddAssetDisabled(true);
       setDisabled(false);
       setValidatedAmount(false);
-      unsetResetInputAmount()
+      unsetResetInputAmount();
       setValue(AMOUNT_TEXT);
     }
   }, [resetField]); // Include `setAddAssetDisabled` as a dependency to ensure it's always up-to-date
@@ -82,26 +89,26 @@ const InputAmount: React.FC<InputAmountProps> = ({
   }, [isOffer, isAccept]);
 
   const handleOnClick = () => {
-    dbg && console.log('handleOnClick()')
-    setFocused(true)
+    dbg && console.log("handleOnClick()");
+    setFocused(true);
     setValidatedAmount(false);
-    handleInputAmountFocused(true, $isOffer, $isAccept)
+    handleInputAmountFocused(true, $isOffer, $isAccept);
     setAddAssetDisabled(true);
-    setValue('');
+    setValue("");
     setDisabled(false);
   };
 
   const handleOnChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    dbg && console.log('handleOnChange()')
-    setFocused(true)
-    handleInputAmountFocused(true, $isOffer, $isAccept)
+    dbg && console.log("handleOnChange()");
+    setFocused(true);
+    handleInputAmountFocused(true, $isOffer, $isAccept);
     const value = e.target.value;
 
     if (isNaN(Number(value))) {
-      setValue('digits only');
+      setValue("digits only");
       setTimeout(() => {
         handleOnClick();
-        setValue('');
+        setValue("");
       }, FLASH_WARNING_PERIOD_MSECS);
       return; // Exit early if input is not a valid number
     }
@@ -112,72 +119,86 @@ const InputAmount: React.FC<InputAmountProps> = ({
       setValue(`<= ${balance}`);
       setTimeout(() => {
         handleOnClick();
-        setValue('');
+        setValue("");
         setAddAssetDisabled(true);
       }, FLASH_WARNING_PERIOD_MSECS);
     } else if (number === 0 && isNew) {
-      setValue('> 0');
+      setValue("> 0");
       setTimeout(() => {
         handleOnClick();
-        setValue('');
+        setValue("");
       }, FLASH_WARNING_PERIOD_MSECS);
     } else {
       setValue(value);
-      setValidatedAmount(true)
-      const addAssetDisabled = 
+      setValidatedAmount(true);
+      const addAssetDisabled =
         value === AMOUNT_TEXT ||
         value === SELECT_ASSET_TEXT ||
-        value === '' ||
-        (value === '0' && isNew)
-        dbg && console.log('handleMouseEnter():addAssetDisabled=', addAssetDisabled)
-        setAddAssetDisabled(addAssetDisabled)
+        value === "" ||
+        (value === "0" && isNew);
+      dbg &&
+        console.log("handleMouseEnter():addAssetDisabled=", addAssetDisabled);
+      setAddAssetDisabled(addAssetDisabled);
     }
   };
 
   const handleMouseEnter = () => {
-    dbg && console.log('handleMouseEnter()')
-    setFocused(false)
+    dbg && console.log("handleMouseEnter()");
+    setFocused(false);
     //handleInputAmountFocused(true, $isOffer, $isAccept)
-    if (!disable  && !validatedAmount) {
+    if (!disable && !validatedAmount) {
       if (assetSelected) {
-        const text: string = `${AMOUNT_TEXT}(available ${balance})`
-        setValue(text)
+        const text: string = `${AMOUNT_TEXT}(available ${balance})`;
+        setValue(text);
       } else {
-        const text: string = `${SELECT_ASSET_TEXT}`
-        setValue(text)
+        const text: string = `${SELECT_ASSET_TEXT}`;
+        setValue(text);
       }
     }
-    const addAssetDisabled = !isStringNumber(value)
-    dbg && console.log('handleMouseEnter():value=', value, ',addAssetDisabled=', addAssetDisabled)
-    setAddAssetDisabled(addAssetDisabled)
-  }
+    const addAssetDisabled = !isStringNumber(value);
+    dbg &&
+      console.log(
+        "handleMouseEnter():value=",
+        value,
+        ",addAssetDisabled=",
+        addAssetDisabled,
+      );
+    setAddAssetDisabled(addAssetDisabled);
+  };
 
   const handleMouseLeave = () => {
-    dbg && console.log('handleMouseLeave()')
-    setFocused(false)
+    dbg && console.log("handleMouseLeave()");
+    setFocused(false);
     //handleInputAmountFocused(false, $isOffer, $isAccept)
     if (!disable && !validatedAmount) {
       if (assetSelected) {
-        setValue(AMOUNT_TEXT)
+        setValue(AMOUNT_TEXT);
       } else {
-        setValue(SELECT_ASSET_TEXT)
+        setValue(SELECT_ASSET_TEXT);
       }
     }
-    const addAssetDisabled = !isStringNumber(value) 
-    dbg && console.log('handleMouseLeave():value=', value, ',addAssetDisabled=', addAssetDisabled)
-    setAddAssetDisabled(addAssetDisabled)
-  }
+    const addAssetDisabled = !isStringNumber(value);
+    dbg &&
+      console.log(
+        "handleMouseLeave():value=",
+        value,
+        ",addAssetDisabled=",
+        addAssetDisabled,
+      );
+    setAddAssetDisabled(addAssetDisabled);
+  };
 
   const fieldStyle = {
-    borderRadius: '10px',
+    borderRadius: "10px",
   };
 
   const theme = useTheme();
 
   return (
     <ThemeProvider theme={web3Theme}>
-      <Grid item paddingTop='1em'>
-        <TextField  style={{borderRadius: '10px'}}
+      <Grid item paddingTop="1em">
+        <TextField
+          style={{ borderRadius: "10px" }}
           disabled={disabled}
           size="small"
           fullWidth

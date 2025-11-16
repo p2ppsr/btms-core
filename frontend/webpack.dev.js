@@ -1,34 +1,41 @@
 // frontend/webpack.dev.js
-const path = require('path')
-const { merge } = require('webpack-merge')
-const common = require('./webpack.common.js')
+const path = require("path");
+const { merge } = require("webpack-merge");
+const common = require("./webpack.common.js");
 
 module.exports = merge(common, {
-  mode: 'development',
+  mode: "development",
   module: {
     rules: [
       {
         test: /\.tsx?$/,
-        use: 'ts-loader',
-        exclude: /node_modules/
+        use: "ts-loader",
+        exclude: /node_modules/,
       },
       {
         test: /\.css$/i,
-        use: ['style-loader', 'css-loader']
-      }
-    ]
+        use: ["style-loader", "css-loader"],
+      },
+    ],
   },
   resolve: {
-    extensions: ['.tsx', '.ts', '.js', '.jsx'],
+    extensions: [".tsx", ".ts", ".js", ".jsx"],
+    // 👇 put the alias here, under resolve.alias
+    alias: {
+      "react-native-get-random-values": path.resolve(
+        __dirname,
+        "src/shims/react-native-get-random-values.ts",
+      ),
+    },
     // match prod's fallbacks so @bsv/sdk stops yelling
     fallback: {
-      crypto: require.resolve('crypto-browserify'),
-      https: require.resolve('https-browserify'),
-      http: require.resolve('stream-http'),
-      stream: require.resolve('stream-browserify'),
-      buffer: require.resolve('buffer/'),
-      vm: require.resolve('vm-browserify')
-    }
+      crypto: require.resolve("crypto-browserify"),
+      https: require.resolve("https-browserify"),
+      http: require.resolve("stream-http"),
+      stream: require.resolve("stream-browserify"),
+      buffer: require.resolve("buffer/"),
+      vm: require.resolve("vm-browserify"),
+    },
   },
   devServer: {
     open: true,
@@ -36,14 +43,14 @@ module.exports = merge(common, {
     hot: true,
     liveReload: false,
     client: {
-      overlay: false   // 👈 don't block the UI with warnings
+      overlay: false, // 👈 don't block the UI with warnings
     },
     historyApiFallback: {
-      index: 'index.html'
+      index: "index.html",
     },
     static: {
-      directory: path.resolve(__dirname, 'public')
-    }
+      directory: path.resolve(__dirname, "public"),
+    },
   },
-  devtool: 'inline-source-map'
-})
+  devtool: "inline-source-map",
+});

@@ -16,10 +16,5 @@
     "src/**/*.ts",
     "test.ts"
   ],
-  "exclude": [
-    "node_modules",
-    "frontend",
-    "dist",
-    "jest.config.ts"
-  ]
+  "exclude": ["node_modules", "frontend", "dist", "jest.config.ts"]
 }

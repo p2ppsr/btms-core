@@ -13,77 +13,80 @@
  * @version 1.0.0
  * @author xAI (Grok 3)
  */
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
+var __importDefault =
+  (this && this.__importDefault) ||
+  function (mod) {
+    return mod && mod.__esModule ? mod : { default: mod };
+  };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.logWithTimestamp = exports.log = void 0;
 const util_1 = __importDefault(require("util"));
 // frontend/src/utils/logging.ts
 // Simple built-in fallback logger (no external config)
 exports.log = {
-    info: (...args) => console.log('[info]', ...args),
-    warn: (...args) => console.warn('[warn]', ...args),
-    error: (...args) => console.error('[error]', ...args),
+  info: (...args) => console.log("[info]", ...args),
+  warn: (...args) => console.warn("[warn]", ...args),
+  error: (...args) => console.error("[error]", ...args),
 };
 let lastLogTime = performance.now();
 // Detect truecolor support
-const supportsTruecolor = process.env.COLORTERM === 'truecolor';
+const supportsTruecolor = process.env.COLORTERM === "truecolor";
 // Import logging configuration with error handling
 let loggingConfig = { default: true };
 try {
-    // loggingConfig = require('./logging.config').default || { default: true }
-}
-catch (e) {
-    console.warn('Failed to load logging.config.ts, using default settings:', e);
+  // loggingConfig = require('./logging.config').default || { default: true }
+} catch (e) {
+  console.warn("Failed to load logging.config.ts, using default settings:", e);
 }
 const colorize = (elapsed) => {
-    if (elapsed > 1.0) {
-        return supportsTruecolor
-            ? '\x1b[38;2;255;0;0m' // red
-            : '\x1b[31m'; // ANSI red
-    }
-    else if (elapsed > 0.5) {
-        return supportsTruecolor
-            ? '\x1b[38;2;255;165;0m' // orange
-            : '\x1b[33;1m'; // bright yellow as orange
-    }
-    else if (elapsed > 0.3) {
-        return supportsTruecolor
-            ? '\x1b[38;2;255;255;0m' // yellow
-            : '\x1b[33m'; // ANSI yellow
-    }
-    else {
-        return '\x1b[0m'; // default
-    }
+  if (elapsed > 1.0) {
+    return supportsTruecolor
+      ? "\x1b[38;2;255;0;0m" // red
+      : "\x1b[31m"; // ANSI red
+  } else if (elapsed > 0.5) {
+    return supportsTruecolor
+      ? "\x1b[38;2;255;165;0m" // orange
+      : "\x1b[33;1m"; // bright yellow as orange
+  } else if (elapsed > 0.3) {
+    return supportsTruecolor
+      ? "\x1b[38;2;255;255;0m" // yellow
+      : "\x1b[33m"; // ANSI yellow
+  } else {
+    return "\x1b[0m"; // default
+  }
 };
-const logWithTimestamp = (file = 'unknown', message = 'No message', ...args) => {
-    // Check if logging is enabled for this file (fall back to default if not set)
-    const isEnabled = loggingConfig[file] !== undefined ? loggingConfig[file] : loggingConfig.default;
-    if (!isEnabled)
-        return;
-    const now = performance.now();
-    const elapsedSec = (now - lastLogTime) / 1000;
-    lastLogTime = now;
-    const timestamp = new Date().toISOString();
-    const elapsed = elapsedSec.toFixed(3);
-    const color = colorize(elapsedSec);
-    // Safely format values (handles objects and circular references)
-    const safeFormat = (val) => {
-        if (typeof val === 'object' && val !== null) {
-            try {
-                return JSON.stringify(val, null, 2);
-            }
-            catch (e) {
-                return util_1.default.inspect(val, { depth: 2, colors: true });
-            }
-        }
-        return val;
-    };
-    const formattedMessage = safeFormat(message);
-    const formattedArgs = args.map(safeFormat);
-    // Construct the log line
-    const logMessage = `[${timestamp}] ${color}[${elapsed}s]\x1b[0m [${file}]`;
-    console.log(logMessage, formattedMessage, ...formattedArgs);
+const logWithTimestamp = (
+  file = "unknown",
+  message = "No message",
+  ...args
+) => {
+  // Check if logging is enabled for this file (fall back to default if not set)
+  const isEnabled =
+    loggingConfig[file] !== undefined
+      ? loggingConfig[file]
+      : loggingConfig.default;
+  if (!isEnabled) return;
+  const now = performance.now();
+  const elapsedSec = (now - lastLogTime) / 1000;
+  lastLogTime = now;
+  const timestamp = new Date().toISOString();
+  const elapsed = elapsedSec.toFixed(3);
+  const color = colorize(elapsedSec);
+  // Safely format values (handles objects and circular references)
+  const safeFormat = (val) => {
+    if (typeof val === "object" && val !== null) {
+      try {
+        return JSON.stringify(val, null, 2);
+      } catch (e) {
+        return util_1.default.inspect(val, { depth: 2, colors: true });
+      }
+    }
+    return val;
+  };
+  const formattedMessage = safeFormat(message);
+  const formattedArgs = args.map(safeFormat);
+  // Construct the log line
+  const logMessage = `[${timestamp}] ${color}[${elapsed}s]\x1b[0m [${file}]`;
+  console.log(logMessage, formattedMessage, ...formattedArgs);
 };
 exports.logWithTimestamp = logWithTimestamp;

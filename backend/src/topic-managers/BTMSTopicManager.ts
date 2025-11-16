@@ -1,86 +1,71 @@
-import { AdmittanceInstructions, TopicManager } from '@bsv/overlay'
-import { Transaction } from '@bsv/sdk'
-import docs from './BTMSTopicDocs.md'
-
-// JS lib, no types — same as in your btms-core
-// if the overlay runtime already has this available, use that path
-// @ts-ignore
-import pushdrop from 'pushdrop'
+import { AdmittanceInstructions, TopicManager } from "@bsv/overlay";
+import { Transaction } from "@bsv/sdk";
+import docs from "./BTMSTopicDocs.md";
 
 /**
- * Admits outputs that look like BTMS / pushdrop token outputs.
- * Very similar in shape to BTMSTopicManager, but instead of parsing an sCrypt
- * contract, we just try pushdrop.decode(...) on each output script.
+ * BTMS Topic Manager (pushdrop-free).
+ *
+ * For the **original BTMS demo flow**, we do *not* try to parse or
+ * validate the token structure here. We simply:
+ *
+ *  - Parse the BEEF into a Transaction
+ *  - Admit all outputs (or as many as we can safely handle)
+ *  - Let higher-level code / the wallet decide what is “really” BTMS
+ *
+ * This keeps the overlay running reliably and avoids any dependency
+ * on the separate `pushdrop` package or BRC-48 conventions.
  */
 export default class BTMSTopicManager implements TopicManager {
   /**
    * Decide which outputs from the submitted tx should be admitted to this topic.
+   * For the original BTMS behavior, we simply admit all outputs that parse OK.
    */
   async identifyAdmissibleOutputs(
     beef: number[],
-    previousCoins: number[]
+    previousCoins: number[],
   ): Promise<AdmittanceInstructions> {
-    const outputsToAdmit: number[] = []
+    const outputsToAdmit: number[] = [];
 
     try {
-      const tx = Transaction.fromBEEF(beef)
+      const tx = Transaction.fromBEEF(beef);
 
-      for (const [i, output] of tx.outputs.entries()) {
-        try {
-          // Try to decode as pushdrop
-          const decoded = pushdrop.decode({
-            script: output.lockingScript.toHex(),
-            fieldFormat: 'utf8'
-          })
-
-          // Minimal sanity: need at least assetId + amount
-          if (
-            Array.isArray(decoded.fields) &&
-            decoded.fields.length >= 2 &&
-            typeof decoded.fields[0] === 'string' &&
-            typeof decoded.fields[1] === 'string'
-          ) {
-            // If you want to enforce “belongs to btms” via protocolID in pushdrop,
-            // you could check decoded.protocolID / decoded.keyID / decoded.counterparty here.
-            outputsToAdmit.push(i)
-          }
-        } catch (_) {
-          // not a BTMS/pushdrop output — ignore
-          continue
-        }
+      // Original BTMS flow did not filter by protocol.
+      // To avoid fragile assumptions (and external libs), we admit all outputs.
+      for (const [i] of tx.outputs.entries()) {
+        outputsToAdmit.push(i);
       }
 
       if (outputsToAdmit.length === 0) {
-        // like BTMSTopicManager, we can be permissive and not throw
-        console.warn('BTMSTopicManager: no outputs admitted for this tx')
+        // Stay permissive like Meter: warn but don't throw.
+        console.warn("BTMSTopicManager: no outputs admitted for this tx");
       }
     } catch (error) {
-      const beefStr = JSON.stringify(beef, null, 2)
+      const beefStr = JSON.stringify(beef, null, 2);
       throw new Error(
-        `BTMSTopicManager: error identifying admissible outputs: ${error} beef:${beefStr}}`
-      )
+        `BTMSTopicManager: error identifying admissible outputs: ${error} beef:${beefStr}}`,
+      );
     }
 
     return {
       outputsToAdmit,
-      coinsToRetain: previousCoins
-    }
+      coinsToRetain: previousCoins,
+    };
   }
 
   async getDocumentation(): Promise<string> {
-    return docs
+    return docs;
   }
 
   async getMetaData(): Promise<{
-    name: string
-    shortDescription: string
-    iconURL?: string
-    version?: string
-    informationURL?: string
+    name: string;
+    shortDescription: string;
+    iconURL?: string;
+    version?: string;
+    informationURL?: string;
   }> {
     return {
-      name: 'BTMS Topic Manager',
-      shortDescription: 'Admits BTMS / pushdrop token outputs.'
-    }
+      name: "BTMS Topic Manager",
+      shortDescription: "Admits BTMS transaction outputs (no PushDrop).",
+    };
   }
 }

@@ -1,5 +1,4 @@
-// src/components/Receive/index.tsx
-import React, { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState, useCallback } from "react";
 import {
   Badge,
   Button,
@@ -15,22 +14,23 @@ import {
   TableRow,
   TableCell,
   TableBody,
-  IconButton
-} from '@mui/material'
-import ContentCopyIcon from '@mui/icons-material/ContentCopy'
-import RefreshIcon from '@mui/icons-material/Refresh'
-import { toast } from 'react-toastify'
-import BTMS from '../../utils/BTMS'
-import type { IncomingPayment } from '../../btmsTypes'
+  IconButton,
+} from "@mui/material";
+import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import RefreshIcon from "@mui/icons-material/Refresh";
+import { toast } from "react-toastify";
+import BTMS from "../../utils/BTMS";
+import type { IncomingPayment } from "../../btmsTypes";
+import { SatoshiValue } from "@bsv/sdk";
 
 type ReceiveProps = {
-  assetId?: string
-  asset?: { name?: string }
-  badge?: number | boolean
-  incomingAmount?: number
-  onReloadNeeded?: () => Promise<void> | void
-  fromMessageBoxOnly?: boolean
-}
+  assetId?: string;
+  asset?: { name?: string };
+  badge?: number | boolean;
+  incomingAmount?: SatoshiValue;
+  onReloadNeeded?: () => Promise<void> | void;
+  fromMessageBoxOnly?: boolean;
+};
 
 const Receive: React.FC<ReceiveProps> = ({
   assetId,
@@ -38,157 +38,155 @@ const Receive: React.FC<ReceiveProps> = ({
   badge = false,
   incomingAmount,
   onReloadNeeded = () => {},
-  fromMessageBoxOnly
 }) => {
-  const [open, setOpen] = useState(false)
-  const [loading, setLoading] = useState(false)
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
   // null = still loading
-  const [identityKey, setIdentityKey] = useState<string | null>(null)
-  const [incoming, setIncoming] = useState<IncomingPayment[]>([])
+  const [identityKey, setIdentityKey] = useState<string | null>(null);
+  const [incoming, setIncoming] = useState<IncomingPayment[]>([]);
 
   // 1) get identity from the wallet the old way: window.walletClient.getPublicKey({ identityKey: true })
-  //    our updated src/utils/BTMS.ts patches this call so the backend won't crash.
+  //    our updated src/utils/BTMS.ts patches btms-core usage so the backend won't crash.
   useEffect(() => {
-    let cancelled = false
+    let cancelled = false;
 
     const loadIdentityKey = async () => {
       try {
-        if (typeof window === 'undefined') {
-          if (!cancelled) setIdentityKey('')
-          return
+        if (typeof window === "undefined") {
+          if (!cancelled) setIdentityKey("");
+          return;
         }
 
-        const win = window as any
-        const wallet = win.walletClient
+        const win = window as any;
+        const wallet = win.walletClient;
 
-        if (!wallet || typeof wallet.getPublicKey !== 'function') {
-          console.log('[Receive] no walletClient on window, identity empty')
-          if (!cancelled) setIdentityKey('')
-          return
+        if (!wallet || typeof wallet.getPublicKey !== "function") {
+          console.log("[Receive] no walletClient on window, identity empty");
+          if (!cancelled) setIdentityKey("");
+          return;
         }
 
         // this mirrors the original “old world” receiver
-        const raw = await wallet.getPublicKey({ identityKey: true })
-        const key = typeof raw === 'string' ? raw : raw?.publicKey || ''
+        const raw = await wallet.getPublicKey({ identityKey: true });
+        const key = typeof raw === "string" ? raw : raw?.publicKey || "";
 
         if (!cancelled) {
-          setIdentityKey(key)
+          setIdentityKey(key);
         }
       } catch (err) {
-        console.error('[Receive] could not load identity key', err)
+        console.error("[Receive] could not load identity key", err);
         if (!cancelled) {
-          setIdentityKey('')
+          setIdentityKey("");
         }
       }
-    }
+    };
 
-    loadIdentityKey()
+    loadIdentityKey();
 
     return () => {
-      cancelled = true
-    }
-  }, [])
+      cancelled = true;
+    };
+  }, []);
 
   // 2) incoming loader — now always call the real BTMS singleton
-  const loadIncoming = useCallback(
-    async (desiredAssetId?: string) => {
-      if (!BTMS || typeof (BTMS as any).listIncomingPayments !== 'function') {
-        toast.error('BTMS not available in frontend')
-        return
-      }
-      setLoading(true)
-      try {
-        const msgs = desiredAssetId
-          ? await (BTMS as any).listIncomingPayments(desiredAssetId)
-          : await (BTMS as any).listIncomingPayments()
+  const loadIncoming = useCallback(async (desiredAssetId?: string) => {
+    if (!BTMS || typeof (BTMS as any).listIncomingPayments !== "function") {
+      toast.error("BTMS not available in frontend");
+      return;
+    }
+    setLoading(true);
+    try {
+      const msgs = desiredAssetId
+        ? await (BTMS as any).listIncomingPayments(desiredAssetId)
+        : await (BTMS as any).listIncomingPayments();
 
-        const clean: IncomingPayment[] = Array.isArray(msgs) ? msgs : []
-        setIncoming(clean)
-      } catch (err: any) {
-        console.error(err)
-        toast.error(err?.message || 'Failed to load incoming payments')
-      } finally {
-        setLoading(false)
-      }
-    },
-    []
-  )
+      const clean: IncomingPayment[] = Array.isArray(msgs) ? msgs : [];
+      setIncoming(clean);
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err?.message || "Failed to load incoming payments");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   const handleOpen = async () => {
-    setOpen(true)
-    await loadIncoming(assetId)
-  }
+    setOpen(true);
+    await loadIncoming(assetId);
+  };
 
   const handleClose = () => {
-    setOpen(false)
-  }
+    setOpen(false);
+  };
 
   const handleCopy = () => {
-    if (!identityKey) return
-    navigator.clipboard.writeText(identityKey).catch(() => {})
-    toast.success('Identity key copied')
-  }
+    if (!identityKey) return;
+    navigator.clipboard.writeText(identityKey).catch(() => {});
+    toast.success("Identity key copied");
+  };
 
   const handleRefresh = async () => {
-    await loadIncoming(assetId)
-    await Promise.resolve(onReloadNeeded())
-  }
+    await loadIncoming(assetId);
+    await Promise.resolve(onReloadNeeded());
+  };
 
   const handleAccept = async (payment: IncomingPayment) => {
     try {
-      setLoading(true)
-      await (BTMS as any).acceptIncomingPayment(assetId || '', payment)
+      setLoading(true);
+      await (BTMS as any).acceptIncomingPayment(assetId || "", payment);
       // refresh lists + parent
-      await loadIncoming(assetId)
-      await Promise.resolve(onReloadNeeded())
+      await loadIncoming(assetId);
+      await Promise.resolve(onReloadNeeded());
       toast.success(
-        `${payment.amount} ${asset?.name ?? 'tokens'} successfully received (message acknowledged).`
-      )
-      setOpen(false)
+        `${payment.amount} ${asset?.name ?? "tokens"} successfully received (message acknowledged).`,
+      );
+      setOpen(false);
     } catch (err: any) {
-      console.error(err)
-      toast.error(err?.message || 'Failed to accept payment')
+      console.error(err);
+      toast.error(err?.message || "Failed to accept payment");
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   const handleRefund = async (payment: IncomingPayment) => {
     try {
-      setLoading(true)
-      await (BTMS as any).refundIncomingTransaction(assetId || '', payment)
-      await loadIncoming(assetId)
-      await Promise.resolve(onReloadNeeded())
-      toast.success(`You refunded ${payment.amount} ${asset?.name ?? 'tokens'}.`)
-      setOpen(false)
+      setLoading(true);
+      await (BTMS as any).refundIncomingTransaction(assetId || "", payment);
+      await loadIncoming(assetId);
+      await Promise.resolve(onReloadNeeded());
+      toast.success(
+        `You refunded ${payment.amount} ${asset?.name ?? "tokens"}.`,
+      );
+      setOpen(false);
     } catch (err: any) {
-      console.error(err)
-      toast.error(err?.message || 'Failed to refund payment')
+      console.error(err);
+      toast.error(err?.message || "Failed to refund payment");
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
-  const currentCount = incoming.length
+  const currentCount = incoming.length;
   const badgeVisible =
-    typeof badge === 'number'
+    typeof badge === "number"
       ? badge > 0
-      : typeof incomingAmount === 'number'
-      ? incomingAmount > 0
-      : !!badge
+      : typeof incomingAmount === "number"
+        ? incomingAmount > 0
+        : !!badge;
 
-  console.log('[Receive] rendering, identityKey =', identityKey)
+  console.log("[Receive] rendering, identityKey =", identityKey);
 
   const identityDisplay =
     identityKey === null
-      ? '(loading...)'
-      : identityKey === ''
-      ? '(no identity from wallet)'
-      : identityKey
+      ? "(loading...)"
+      : identityKey === ""
+        ? "(no identity from wallet)"
+        : identityKey;
 
   return (
     <>
-      <Badge color="error" variant={badgeVisible ? 'dot' : 'standard'}>
+      <Badge color="error" variant={badgeVisible ? "dot" : "standard"}>
         <Button
           variant="outlined"
           color="secondary"
@@ -207,7 +205,7 @@ const Receive: React.FC<ReceiveProps> = ({
         aria-labelledby="receive-dialog-title"
       >
         <DialogTitle id="receive-dialog-title">
-          Receive {asset?.name ?? 'Asset'}
+          Receive {asset?.name ?? "Asset"}
         </DialogTitle>
         <DialogContent dividers>
           <Grid container direction="column" spacing={2}>
@@ -220,18 +218,22 @@ const Receive: React.FC<ReceiveProps> = ({
                 variant="outlined"
                 sx={{
                   p: 1,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between'
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
                 }}
               >
                 <Typography
                   variant="body2"
-                  sx={{ wordBreak: 'break-all', mr: 1 }}
+                  sx={{ wordBreak: "break-all", mr: 1 }}
                 >
                   {identityDisplay}
                 </Typography>
-                <IconButton size="small" onClick={handleCopy} disabled={!identityKey}>
+                <IconButton
+                  size="small"
+                  onClick={handleCopy}
+                  disabled={!identityKey}
+                >
                   <ContentCopyIcon fontSize="small" />
                 </IconButton>
               </Paper>
@@ -240,14 +242,14 @@ const Receive: React.FC<ReceiveProps> = ({
             <Grid
               item
               sx={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between'
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
               }}
             >
               <Typography variant="subtitle1">
-                Incoming / receivable payments for{' '}
-                <strong>{asset?.name ?? assetId ?? '(unknown asset)'}</strong>
+                Incoming / receivable payments for{" "}
+                <strong>{asset?.name ?? assetId ?? "(unknown asset)"}</strong>
               </Typography>
               <Button
                 variant="text"
@@ -261,8 +263,8 @@ const Receive: React.FC<ReceiveProps> = ({
 
             <Grid item>
               <Typography variant="caption" color="text.secondary">
-                {currentCount} message{currentCount === 1 ? '' : 's'} · total
-                reported tokens:{' '}
+                {currentCount} message{currentCount === 1 ? "" : "s"} · total
+                reported tokens:{" "}
                 {incoming.reduce((sum, p) => sum + (p.amount || 0), 0)}
               </Typography>
             </Grid>
@@ -285,16 +287,16 @@ const Receive: React.FC<ReceiveProps> = ({
                   <TableBody>
                     {incoming.map((pmt) => (
                       <TableRow key={pmt.messageId}>
-                        <TableCell>{pmt.sender || '(unknown)'}</TableCell>
+                        <TableCell>{pmt.sender || "(unknown)"}</TableCell>
                         <TableCell>
-                          {pmt.amount} {asset?.name ?? ''}
+                          {pmt.amount} {asset?.name ?? ""}
                         </TableCell>
                         <TableCell sx={{ maxWidth: 160 }}>
                           <Typography
                             variant="body2"
-                            sx={{ wordBreak: 'break-all' }}
+                            sx={{ wordBreak: "break-all" }}
                           >
-                            {pmt.txid || '(no txid)'}
+                            {pmt.txid || "(no txid)"}
                           </Typography>
                         </TableCell>
                         <TableCell align="right">
@@ -327,7 +329,7 @@ const Receive: React.FC<ReceiveProps> = ({
         </DialogActions>
       </Dialog>
     </>
-  )
-}
+  );
+};
 
-export default Receive
+export default Receive;

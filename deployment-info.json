@@ -24,9 +24,7 @@
       "name": "Local LARS",
       "network": "mainnet",
       "provider": "LARS",
-      "run": [
-        "backend"
-      ]
+      "run": ["backend"]
     },
     {
       "name": "atx",
@@ -34,10 +32,7 @@
       "CARSCloudURL": "https://cars.atx.systems",
       "projectID": "28aa5632cc9f2974234bba40ff00f20d",
       "network": "mainnet",
-      "deploy": [
-        "frontend",
-        "backend"
-      ],
+      "deploy": ["frontend", "backend"],
       "frontendHostingMethod": "HTTPS"
     },
     {
@@ -46,10 +41,7 @@
       "CARSCloudURL": "https://cars.babbage.systems",
       "projectID": "161a4f0f091010a0f8a34a5d1d1b9dd7",
       "network": "mainnet",
-      "deploy": [
-        "frontend",
-        "backend"
-      ],
+      "deploy": ["frontend", "backend"],
       "frontendHostingMethod": "HTTPS"
     },
     {
@@ -58,10 +50,7 @@
       "CARSCloudURL": "https://cars.babbage.systems",
       "projectID": "91059bf8c0beecb8fdb5962a1fd94c5c",
       "network": "mainnet",
-      "deploy": [
-        "frontend",
-        "backend"
-      ],
+      "deploy": ["frontend", "backend"],
       "frontendHostingMethod": "HTTPS"
     }
   ]

@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import type { Asset } from '../btms'
+import React, { useState, useEffect } from "react";
+import type { Asset } from "../btms";
 
 interface AssetManagementProps {
   assets: Asset[]; // List of assets passed as props
@@ -8,7 +8,9 @@ interface AssetManagementProps {
 
 const AssetManagement: React.FC<AssetManagementProps> = ({ assets }) => {
   const [internalAssetsList, setAssets] = useState([]); // internal version
-  const [internalAssetsMap, setInternalAssets] = useState<{ [assetId: string]: Asset }>({});
+  const [internalAssetsMap, setInternalAssets] = useState<{
+    [assetId: string]: Asset;
+  }>({});
 
   // useEffect to update internalAssetsMap state when assets prop changes
   useEffect(() => {
@@ -45,8 +47,7 @@ const AssetManagement: React.FC<AssetManagementProps> = ({ assets }) => {
   const areAssetsEqual = (assetOld: Asset, assetNew: Asset): boolean => {
     // Compare relevant properties of the assets (customize as needed)
     return (
-      assetOld.balance === assetNew.balance &&
-      assetOld.name === assetNew.name
+      assetOld.balance === assetNew.balance && assetOld.name === assetNew.name
       // Add more properties for comparison as needed
       // Example: asset1.attr === asset2.attr
     );
