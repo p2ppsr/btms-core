@@ -1,5 +1,5 @@
 import { AdmittanceInstructions, TopicManager } from "@bsv/overlay";
-import { Transaction } from "@bsv/sdk";
+import { BEEF, Byte, PositiveIntegerOrZero, Transaction } from "@bsv/sdk";
 import docs from "./BTMSTopicDocs.md";
 
 /**
@@ -21,34 +21,35 @@ export default class BTMSTopicManager implements TopicManager {
    * For the original BTMS behavior, we simply admit all outputs that parse OK.
    */
   async identifyAdmissibleOutputs(
-    beef: number[],
-    previousCoins: number[],
+    beef: BEEF,
+    previousCoins: PositiveIntegerOrZero[],
   ): Promise<AdmittanceInstructions> {
-    const outputsToAdmit: number[] = [];
+    const outputsToAdmit: PositiveIntegerOrZero[] = [];
 
     try {
-      const tx = Transaction.fromBEEF(beef);
+      const tx = Transaction.fromBEEF(beef as Byte[]);
 
       // Original BTMS flow did not filter by protocol.
       // To avoid fragile assumptions (and external libs), we admit all outputs.
       for (const [i] of tx.outputs.entries()) {
-        outputsToAdmit.push(i);
+        outputsToAdmit.push(i as PositiveIntegerOrZero);
       }
 
       if (outputsToAdmit.length === 0) {
         // Stay permissive like Meter: warn but don't throw.
         console.warn("BTMSTopicManager: no outputs admitted for this tx");
       }
-    } catch (error) {
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
       const beefStr = JSON.stringify(beef, null, 2);
       throw new Error(
-        `BTMSTopicManager: error identifying admissible outputs: ${error} beef:${beefStr}}`,
+        `BTMSTopicManager: error identifying admissible outputs: ${message} beef:${beefStr}}`,
       );
     }
 
     return {
-      outputsToAdmit,
-      coinsToRetain: previousCoins,
+      outputsToAdmit: outputsToAdmit as number[],
+      coinsToRetain: previousCoins as number[],
     };
   }
 

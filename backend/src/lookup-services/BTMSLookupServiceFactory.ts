@@ -11,9 +11,60 @@ import {
   LookupFormula,
 } from "@bsv/overlay";
 import { Db } from "mongodb";
-import { PositiveIntegerOrZero, Transaction, TXIDHexString } from "@bsv/sdk";
+import {
+  AtomicBEEF,
+  BEEF,
+  Byte,
+  PositiveIntegerOrZero,
+  Transaction,
+  TXIDHexString,
+} from "@bsv/sdk";
 import { BTMSStorage } from "./BTMSStorage";
 import docs from "./BTMSLookupDocs.md";
+
+/**
+ * Any BEEF-ish thing we might see on the payload.
+ */
+type BeefLike = BEEF | AtomicBEEF | Uint8Array;
+
+interface WholeTxPayloadExtras {
+  outputIndex?: number | string | PositiveIntegerOrZero;
+  atomicBEEF?: AtomicBEEF;
+  atomicBeef?: BeefLike;
+  beef?: BeefLike;
+  context?: BeefLike;
+}
+
+type LockingScriptBytes = Byte[];
+
+type LockingScriptLike =
+  | LockingScriptBytes
+  | Uint8Array
+  | Buffer
+  | {
+      toBytes?: () => Uint8Array;
+      toBuffer?: () => Uint8Array | Buffer;
+      toHex?: () => string;
+    }
+  | null
+  | undefined;
+
+type LooseQuery = {
+  txid?: unknown;
+  vout?: unknown;
+  formula?: unknown;
+  assetId?: unknown;
+  findAll?: unknown;
+  query?: unknown;
+  service?: unknown;
+};
+
+type LookupEntry = LookupFormula[number];
+
+type ExtendedLookupEntry = LookupEntry & {
+  beef?: AtomicBEEF;
+  lockingScript?: LockingScriptBytes;
+};
 
 /**
  * BTMS lookup service (pushdrop-free).
@@ -72,7 +123,7 @@ class BTMSLookupService implements LookupService {
    * We:
    *  - parse atomicBEEF / BEEF → Transaction
    *  - derive txid + lockingScript for the admitted outputIndex
-   *  - save { txid, outputIndex, beef:number[], lockingScript:number[] }
+   *  - save { txid, outputIndex, beef:AtomicBEEF, lockingScript:Byte[] }
    */
   async outputAdmittedByTopic(payload: OutputAdmittedByTopic): Promise<void> {
     if (payload.mode !== "whole-tx") {
@@ -89,14 +140,18 @@ class BTMSLookupService implements LookupService {
       return;
     }
 
-    const anyPayload = payload as any;
-    const outputIndex: PositiveIntegerOrZero = Number(anyPayload.outputIndex);
+    const wholePayload = payload as OutputAdmittedByTopic &
+      WholeTxPayloadExtras;
 
-    const atomicBEEFSource =
-      anyPayload.atomicBEEF ??
-      anyPayload.atomicBeef ??
-      anyPayload.beef ??
-      anyPayload.context;
+    const outputIndex = Number(
+      wholePayload.outputIndex ?? 0,
+    ) as PositiveIntegerOrZero;
+
+    const atomicBEEFSource: BeefLike | undefined =
+      wholePayload.atomicBEEF ??
+      wholePayload.atomicBeef ??
+      wholePayload.beef ??
+      wholePayload.context;
 
     if (!atomicBEEFSource) {
       console.log(
@@ -113,19 +168,22 @@ class BTMSLookupService implements LookupService {
       return;
     }
 
-    let beef: number[] | undefined;
+    let beef: AtomicBEEF | undefined;
 
     if (Array.isArray(atomicBEEFSource)) {
-      beef = atomicBEEFSource.map((x: any) => Number(x));
+      beef = atomicBEEFSource.map((x) => Number(x)) as AtomicBEEF;
     } else if (atomicBEEFSource instanceof Uint8Array) {
-      beef = Array.from(atomicBEEFSource, (b: number) => Number(b));
+      beef = Array.from(atomicBEEFSource, (b) => Number(b)) as AtomicBEEF;
     } else {
+      const ctorName =
+        (atomicBEEFSource as { constructor?: { name?: string } })?.constructor
+          ?.name ?? "unknown";
       console.log(
         "[BTMSLookupService] outputAdmittedByTopic: unsupported atomicBEEF/BEEF type",
         JSON.stringify(
           {
             type: typeof atomicBEEFSource,
-            constructor: atomicBEEFSource?.constructor?.name,
+            constructor: ctorName,
           },
           null,
           2,
@@ -136,17 +194,17 @@ class BTMSLookupService implements LookupService {
 
     try {
       // 🔴 IMPORTANT CHANGE: be tolerant of both atomicBEEF and full BEEF
-      let tx: any;
+      let tx: Transaction;
       try {
-        tx = Transaction.fromAtomicBEEF(beef);
+        tx = Transaction.fromAtomicBEEF(beef as AtomicBEEF);
       } catch {
-        tx = Transaction.fromBEEF(beef);
+        tx = Transaction.fromBEEF(beef as BEEF);
       }
       // 🔴 END CHANGE
 
-      const txid = tx.id("hex");
+      const txid = tx.id("hex") as TXIDHexString;
 
-      const o: any = tx.outputs[outputIndex];
+      const o = tx.outputs[outputIndex];
       if (!o) {
         console.log(
           "[BTMSLookupService] outputAdmittedByTopic: no output at index",
@@ -163,9 +221,9 @@ class BTMSLookupService implements LookupService {
         return;
       }
 
-      // 🔐 Safely normalise lockingScript into number[] without assuming a specific SDK shape.
-      let lockingScriptBytes: number[] | undefined;
-      const ls: any = o.lockingScript;
+      // 🔐 Safely normalise lockingScript into Byte[] without assuming a specific SDK shape.
+      let lockingScriptBytes: LockingScriptBytes | undefined;
+      const ls: LockingScriptLike = o.lockingScript as LockingScriptLike;
 
       if (ls == null) {
         // no lockingScript present; we'll just store beef + outpoint
@@ -181,17 +239,25 @@ class BTMSLookupService implements LookupService {
           ),
         );
       } else if (Array.isArray(ls)) {
-        lockingScriptBytes = ls.map((n: any) => Number(n));
+        lockingScriptBytes = ls.map((n) => Number(n)) as LockingScriptBytes;
       } else if (ls instanceof Uint8Array) {
-        lockingScriptBytes = Array.from(ls, (b: number) => Number(b));
+        lockingScriptBytes = Array.from(ls, (b) =>
+          Number(b),
+        ) as LockingScriptBytes;
       } else if (typeof Buffer !== "undefined" && Buffer.isBuffer(ls)) {
-        lockingScriptBytes = Array.from(ls as Buffer, (b: number) => Number(b));
+        lockingScriptBytes = Array.from(ls, (b) =>
+          Number(b),
+        ) as LockingScriptBytes;
       } else if (typeof ls.toBytes === "function") {
-        const u8: Uint8Array = ls.toBytes();
-        lockingScriptBytes = Array.from(u8, (b: number) => Number(b));
+        const u8 = ls.toBytes();
+        lockingScriptBytes = Array.from(u8, (b) =>
+          Number(b),
+        ) as LockingScriptBytes;
       } else if (typeof ls.toBuffer === "function") {
-        const buf: Uint8Array | Buffer = ls.toBuffer();
-        lockingScriptBytes = Array.from(buf as any, (b: number) => Number(b));
+        const buf = ls.toBuffer();
+        lockingScriptBytes = Array.from(buf as Uint8Array | Buffer, (b) =>
+          Number(b),
+        ) as LockingScriptBytes;
       } else if (typeof ls.toHex === "function") {
         // 👉 Script-like object with toHex()
         const hex = ls.toHex();
@@ -203,10 +269,13 @@ class BTMSLookupService implements LookupService {
               const byte = parseInt(clean.slice(i, i + 2), 16);
               if (!Number.isNaN(byte)) bytes.push(byte);
             }
-            lockingScriptBytes = bytes;
+            lockingScriptBytes = bytes as LockingScriptBytes;
           }
         }
       } else {
+        const ctorName =
+          (ls as { constructor?: { name?: string } })?.constructor?.name ??
+          "unknown";
         console.log(
           "[BTMSLookupService] outputAdmittedByTopic: unsupported lockingScript shape",
           JSON.stringify(
@@ -214,7 +283,7 @@ class BTMSLookupService implements LookupService {
               txid,
               outputIndex,
               lockingScriptType: typeof ls,
-              lockingScriptCtor: ls?.constructor?.name,
+              lockingScriptCtor: ctorName,
             },
             null,
             2,
@@ -247,12 +316,14 @@ class BTMSLookupService implements LookupService {
         beef,
         lockingScript: lockingScriptBytes,
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : `Unknown error: ${String(err)}`;
       console.log(
         "[BTMSLookupService] outputAdmittedByTopic: error parsing BEEF/atomicBEEF",
         JSON.stringify(
           {
-            message: err?.message,
+            message,
             outputIndex,
             beefLength: Array.isArray(beef) ? beef.length : 0,
           },
@@ -288,23 +359,28 @@ class BTMSLookupService implements LookupService {
    *
    * For BTMS:
    *  - Exact outpoint ({ txid, vout }) returns a single element, with:
-   *      { txid, outputIndex, context?: number[], beef?: number[], lockingScript?: number[] }
+   *      { txid, outputIndex, context?: number[], beef?: AtomicBEEF, lockingScript?: Byte[] }
    *    (`beef` and `lockingScript` are extra runtime fields; we cast to keep TS happy).
    *
    *  - "findAll" / "findByAssetId" return a simple array of { txid, outputIndex }.
    */
   async lookup(question: LookupQuestion): Promise<LookupFormula> {
     // Normalize query shape (accept {service,query:{...}} or flat)
-    const src: any = question as any;
-    const q: any =
-      src && typeof src.query === "object" && src.query !== null
-        ? src.query
-        : src;
+    const src = question as LooseQuery;
+    const innerQuery =
+      src.query && typeof src.query === "object" && src.query !== null
+        ? (src.query as Record<string, unknown>)
+        : (src as Record<string, unknown>);
+    const q: LooseQuery = innerQuery as LooseQuery;
 
     // 1) Exact outpoint (Meter-style): { txid, vout }
-    if (typeof q?.txid === "string" && Number.isFinite(q?.vout)) {
+    if (
+      typeof q.txid === "string" &&
+      typeof q.vout === "number" &&
+      Number.isFinite(q.vout)
+    ) {
       const txid = q.txid as string;
-      const outputIndex = Number(q.vout);
+      const outputIndex = q.vout as number;
 
       console.log(
         "[BTMSLookupService] lookup: exact outpoint query",
@@ -347,20 +423,18 @@ class BTMSLookupService implements LookupService {
         ),
       );
 
-      // Include beef/lockingScript as extra fields so downstream
-      // (HTTP bridge / LookupResolver) can expose them.
-      const entry: any = {
-        txid: match.txid,
-        outputIndex: match.outputIndex,
+      const entry: ExtendedLookupEntry = {
+        txid: match.txid as TXIDHexString,
+        outputIndex: match.outputIndex as PositiveIntegerOrZero,
       };
 
       if (Array.isArray(match.beef)) {
         entry.context = match.beef; // standard field
-        entry.beef = match.beef; // extra, for convenience
+        entry.beef = match.beef as AtomicBEEF; // extra, for convenience
       }
 
       if (Array.isArray(match.lockingScript)) {
-        entry.lockingScript = match.lockingScript;
+        entry.lockingScript = match.lockingScript as LockingScriptBytes;
       }
 
       return [entry] as LookupFormula;
@@ -368,22 +442,24 @@ class BTMSLookupService implements LookupService {
 
     // 2) Named formula or boolean flag (legacy shapes)
     const formula: string | undefined =
-      typeof q?.formula === "string"
-        ? q.formula
-        : q?.findAll
+      typeof q.formula === "string"
+        ? (q.formula as string)
+        : q.findAll
           ? "findAll"
           : undefined;
 
     if (formula === "findAll") {
       console.log("[BTMSLookupService] lookup: formula=findAll");
       const docs = await this.storage.findAll();
-      return docs.map((d) => ({
-        txid: d.txid,
-        outputIndex: d.outputIndex,
-      })) as LookupFormula;
+      return docs.map(
+        (d): LookupEntry => ({
+          txid: d.txid as TXIDHexString,
+          outputIndex: d.outputIndex as PositiveIntegerOrZero,
+        }),
+      ) as LookupFormula;
     }
 
-    if (formula === "findByAssetId" || typeof q?.assetId === "string") {
+    if (formula === "findByAssetId" || typeof q.assetId === "string") {
       const assetId: string = String(q.assetId ?? "");
       console.log(
         "[BTMSLookupService] lookup: formula=findByAssetId",
@@ -391,10 +467,12 @@ class BTMSLookupService implements LookupService {
       );
       if (!assetId) return [];
       const docs = await this.storage.findByAssetId(assetId);
-      return docs.map((d) => ({
-        txid: d.txid,
-        outputIndex: d.outputIndex,
-      })) as LookupFormula;
+      return docs.map(
+        (d): LookupEntry => ({
+          txid: d.txid as TXIDHexString,
+          outputIndex: d.outputIndex as PositiveIntegerOrZero,
+        }),
+      ) as LookupFormula;
     }
 
     console.log(

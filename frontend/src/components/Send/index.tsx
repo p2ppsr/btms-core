@@ -14,8 +14,8 @@ import {
 import { toast } from "react-toastify";
 import useStyles from "./send-style";
 
-// app utils (btms-ui)
-import BTMS, { sendBTMSToken } from "../../utils/BTMS";
+// btms-core facade singleton
+import BTMS from "../../btmsClient";
 
 // sdk / types
 import type { Asset } from "../../btmsTypes";
@@ -68,19 +68,25 @@ const Send: React.FC<SendProps> = ({
       } else if (qty > asset.balance) {
         toast.error("Oops! That is too many tokens!");
       } else {
-        // Pass only the essentials; sendBTMSToken will delegate to BTMS.send,
-        // which auto-selects an outpoint for this assetId and hydrates the BEEF.
+        // Pass only the essentials; BTMS.send will auto-select an outpoint
+        // for this assetId and hydrate the BEEF internally.
         const args: SendArgs = {
           assetId,
           recipient,
           amount: qty,
         };
 
-        await sendBTMSToken(args);
+        if (!BTMS || typeof (BTMS as any).send !== "function") {
+          throw new Error("BTMS.send is not available in btms-core facade");
+        }
+
+        await (BTMS as any).send(args);
 
         try {
           onReloadNeeded();
-        } catch (_) {}
+        } catch {
+          // ignore reload errors
+        }
         toast.success(`You sent ${qty} ${asset.name}!`);
         setOpen(false);
       }

@@ -355,6 +355,20 @@ interface Wallet extends WalletCryptoObject {
   ) => Promise<GetVersionResult>;
 }
 
+function makeBasketId(raw: string): BasketStringUnder300Bytes {
+  const trimmed = raw.trim() as BasketStringUnder300Bytes;
+
+  // BRC-99: reserve all 'p ' baskets for P-schemes.
+  if (trimmed.startsWith("p ")) {
+    throw new Error(
+      'Basket IDs starting with "p " are reserved by BRC-99 P-schemes and cannot be used by BTMS.',
+    );
+  }
+
+  // You can add length checks here if you want to be stricter than the SDK.
+  return trimmed;
+}
+
 /**
  * Global debug switch. Leave on while we’re chasing the repeated calls.
  */
@@ -1606,7 +1620,7 @@ export class BTMS {
   constructor(
     tokensMessageBox = "tokens-box",
     protocolID: WalletProtocol = [0, "tokens"],
-    basket = "tokens" as BasketStringUnder300Bytes,
+    basket: BasketStringUnder300Bytes = makeBasketId("tokens"),
     tokensTopic = "tokens",
     satoshis: SatoshiValue = 1,
     privateKey?: string,
@@ -1615,7 +1629,7 @@ export class BTMS {
   ) {
     this.tokensMessageBox = tokensMessageBox;
     this.protocolID = protocolID;
-    this.basket = basket;
+    this.basket = makeBasketId(basket);
     this.tokenTopic = tokensTopic;
     this.satoshis = satoshis;
     this.tokenator = new MessageBoxTokenator(walletClient, tokensMessageBox);

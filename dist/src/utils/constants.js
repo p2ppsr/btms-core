@@ -1,11 +1,7 @@
 "use strict";
 // btms-core/utils/constants.ts
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.BTMS_ALL_MESSAGE_BOXES =
-  exports.BTMS_LEGACY_MESSAGE_BOXES =
-  exports.BTMS_CANONICAL_MESSAGE_BOX =
-  exports.TOKEN_BASKET =
-    void 0;
+exports.BTMS_ALL_MESSAGE_BOXES = exports.BTMS_LEGACY_MESSAGE_BOXES = exports.BTMS_CANONICAL_MESSAGE_BOX = exports.TOKEN_BASKET = void 0;
 /**
  * Basket name used when asking the wallet for token UTXOs.
  * Your logs show wallet.listOutputs({ basket: 'tokens', ... })
@@ -31,6 +27,6 @@ exports.BTMS_LEGACY_MESSAGE_BOXES = ["tokens-box", "tokens"];
  * First item is the one we want to standardize on.
  */
 exports.BTMS_ALL_MESSAGE_BOXES = [
-  exports.BTMS_CANONICAL_MESSAGE_BOX,
-  ...exports.BTMS_LEGACY_MESSAGE_BOXES,
+    exports.BTMS_CANONICAL_MESSAGE_BOX,
+    ...exports.BTMS_LEGACY_MESSAGE_BOXES,
 ];

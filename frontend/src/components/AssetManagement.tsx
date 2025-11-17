@@ -1,14 +1,12 @@
 import React, { useState, useEffect } from "react";
-import type { Asset } from "../btms";
+import type { Asset } from "../btmsTypes";
 
 interface AssetManagementProps {
   assets: Asset[]; // List of assets passed as props
-  setAssets: React.Dispatch<React.SetStateAction<Asset[]>>;
 }
 
 const AssetManagement: React.FC<AssetManagementProps> = ({ assets }) => {
-  const [internalAssetsList, setAssets] = useState([]); // internal version
-  const [internalAssetsMap, setInternalAssets] = useState<{
+  const [internalAssetsMap, setInternalAssetsMap] = useState<{
     [assetId: string]: Asset;
   }>({});
 
@@ -34,14 +32,14 @@ const AssetManagement: React.FC<AssetManagementProps> = ({ assets }) => {
       });
 
       // Update internalAssetsMap state with the updated assets
-      setInternalAssets((prevAssets) => ({
+      setInternalAssetsMap((prevAssets) => ({
         ...prevAssets,
         ...updatedAssets,
       }));
     };
 
     updateAssetsList(); // Call updateAssetsList when assets prop changes
-  }, [assets]); // Re-run effect when assets prop changes
+  }, [assets, internalAssetsMap]);
 
   // Helper function to compare two assets for equality
   const areAssetsEqual = (assetOld: Asset, assetNew: Asset): boolean => {
@@ -57,7 +55,7 @@ const AssetManagement: React.FC<AssetManagementProps> = ({ assets }) => {
     <div>
       {/*<h2>AssetManagement Component</h2>
       <pre>{JSON.stringify(internalAssetsMap, null, 2)}</pre>
-			*/}
+      */}
     </div>
   );
 };

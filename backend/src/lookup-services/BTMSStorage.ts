@@ -1,5 +1,18 @@
-import { PositiveIntegerOrZero, SatoshiValue, TXIDHexString } from "@bsv/sdk";
+import {
+  AtomicBEEF,
+  BEEF,
+  Byte,
+  ISOTimestampString,
+  PositiveIntegerOrZero,
+  SatoshiValue,
+  TXIDHexString,
+} from "@bsv/sdk";
 import { Db, Collection, WithId } from "mongodb";
+
+type LockingScriptBytes = Byte[];
+type BeefBytes = AtomicBEEF; // semantically we expect AtomicBEEF here
+
+type ByteLike = LockingScriptBytes | BeefBytes | BEEF | Uint8Array | Buffer;
 
 /**
  * Basic BTMS record we store in Mongo.
@@ -22,36 +35,38 @@ export interface BTMSRecord {
   // Optional extras from overlay admit or future enrichment
   assetId?: string;
   amount?: SatoshiValue;
-  metadata?: any;
+  metadata?: unknown;
 
   // Optional raw material for future redemption / debugging
-  lockingScript?: number[];
-  beef?: number[];
-  output?: any;
+  lockingScript?: LockingScriptBytes;
+  beef?: BeefBytes;
+  output?: unknown;
 
   // Overlay-side timestamp of when we first saw this outpoint
-  createdAt?: string | Date;
+  createdAt?: ISOTimestampString | Date;
 }
 
 /**
- * Normalize any byte-like value (Array, Uint8Array, Buffer) to number[].
+ * Normalize any byte-like value (Array, Uint8Array, Buffer) to Byte[].
  * This keeps older docs (that may have Buffers) compatible with new-world
- * code that expects plain number[] for beef/lockingScript.
+ * code that expects plain Byte[] for beef/lockingScript.
  */
-function normalizeBytes(value: any): number[] | undefined {
+function normalizeBytes(
+  value: ByteLike | null | undefined | unknown,
+): Byte[] | undefined {
   if (value == null) return undefined;
 
   if (Array.isArray(value)) {
-    return value.map((n: any) => Number(n));
+    return value.map((n) => Number(n) as Byte);
   }
 
   if (value instanceof Uint8Array) {
-    return Array.from(value);
+    return Array.from(value, (b) => Number(b) as Byte);
   }
 
   // Node.js Buffer case
   if (typeof Buffer !== "undefined" && Buffer.isBuffer(value)) {
-    return Array.from(value as Buffer);
+    return Array.from(value as Buffer, (b) => Number(b) as Byte);
   }
 
   return undefined;
@@ -73,19 +88,29 @@ export class BTMSStorage {
    * If createdAt is not present, we stamp it here so we can see
    * when the overlay first admitted this UTXO.
    *
-   * We also normalize beef/lockingScript into number[] to avoid
+   * We also normalize beef/lockingScript into Byte[] to avoid
    * Buffer/Uint8Array sneaking into Mongo.
    */
   async saveOnAdmit(record: BTMSRecord): Promise<void> {
-    const { txid, outputIndex, ...rest } = record;
+    const {
+      txid,
+      outputIndex,
+      lockingScript: rawLockingScript,
+      beef: rawBeef,
+      ...rest
+    } = record;
 
-    const now = new Date().toISOString();
-    const createdAt = record.createdAt != null ? record.createdAt : now;
+    const now: ISOTimestampString =
+      new Date().toISOString() as ISOTimestampString;
+    const createdAt: ISOTimestampString | Date =
+      record.createdAt != null ? record.createdAt : now;
 
-    const lockingScript = normalizeBytes((rest as any).lockingScript);
-    const beef = normalizeBytes((rest as any).beef);
+    const lockingScript = normalizeBytes(rawLockingScript) as
+      | LockingScriptBytes
+      | undefined;
+    const beef = normalizeBytes(rawBeef) as BeefBytes | undefined;
 
-    const toSet = {
+    const toSet: BTMSRecord = {
       ...rest,
       txid,
       outputIndex,
@@ -104,14 +129,16 @@ export class BTMSStorage {
   /**
    * Simple "show me everything".
    * We normalize beef/lockingScript on the way out so callers always
-   * see number[].
+   * see Byte[].
    */
   async findAll(): Promise<BTMSRecord[]> {
     const docs = await this.collection.find({}).toArray();
     return docs.map((d) => ({
       ...d,
-      lockingScript: normalizeBytes((d as any).lockingScript),
-      beef: normalizeBytes((d as any).beef),
+      lockingScript: normalizeBytes(d.lockingScript) as
+        | LockingScriptBytes
+        | undefined,
+      beef: normalizeBytes(d.beef) as BeefBytes | undefined,
     }));
   }
 
@@ -123,8 +150,10 @@ export class BTMSStorage {
     const docs = await this.collection.find({ assetId }).toArray();
     return docs.map((d) => ({
       ...d,
-      lockingScript: normalizeBytes((d as any).lockingScript),
-      beef: normalizeBytes((d as any).beef),
+      lockingScript: normalizeBytes(d.lockingScript) as
+        | LockingScriptBytes
+        | undefined,
+      beef: normalizeBytes(d.beef) as BeefBytes | undefined,
     }));
   }
 
@@ -137,25 +166,34 @@ export class BTMSStorage {
     txid: TXIDHexString,
     vout: number,
   ): Promise<BTMSRecord | null> {
-    const doc = await this.collection.findOne({ txid, outputIndex: vout });
+    const doc = await this.collection.findOne({
+      txid,
+      outputIndex: vout as PositiveIntegerOrZero,
+    });
     if (!doc) return null;
     return {
       ...doc,
-      lockingScript: normalizeBytes((doc as any).lockingScript),
-      beef: normalizeBytes((doc as any).beef),
+      lockingScript: normalizeBytes(doc.lockingScript) as
+        | LockingScriptBytes
+        | undefined,
+      beef: normalizeBytes(doc.beef) as BeefBytes | undefined,
     };
   }
 
   /**
    * Helper to return Meter-style output if we need it
    * (e.g. for a future "give me the BEEF for this outpoint" API).
-   * Ensures context is a number[].
+   * Ensures context is a Byte[].
    */
-  toMeterStyleOutput(doc: WithId<BTMSRecord>) {
+  toMeterStyleOutput(doc: WithId<BTMSRecord>): {
+    txid: TXIDHexString;
+    outputIndex: PositiveIntegerOrZero;
+    context?: Byte[];
+  } {
     return {
       txid: doc.txid,
       outputIndex: doc.outputIndex,
-      context: normalizeBytes((doc as any).beef),
+      context: normalizeBytes(doc.beef),
     };
   }
 }

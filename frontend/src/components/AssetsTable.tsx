@@ -1,23 +1,17 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
   Table,
-  TableHead,
   TableRow,
   TableCell,
   TableBody,
   TableContainer,
-  Paper,
   Grid,
   ThemeProvider,
-  InputAdornment,
   IconButton,
-  useTheme,
 } from "@mui/material";
-import { ToastContainer } from "react-toastify";
 import CloseIcon from "@mui/icons-material/Close";
 import web3Theme from "../theme";
-import { BTMS } from "../btms";
-import type { Asset } from "../btms";
+import type { Asset } from "../btmsTypes";
 import { OFFERED_TEXT, ACCEPTED_TEXT } from "../utils/constants";
 
 interface AssetsTableProps {
@@ -25,9 +19,8 @@ interface AssetsTableProps {
   isVisible: boolean;
   isOffer: boolean;
   isAccept: boolean;
-  btms: BTMS;
   assets: Asset[] | null;
-  balanceTextToNameMap: Object;
+  balanceTextToNameMap: Record<string, string>;
   setAssetTableFocused: React.Dispatch<React.SetStateAction<boolean>>;
   handleSelectedAsset: (
     assetId: string,
@@ -43,7 +36,7 @@ interface AssetsTableProps {
   ) => void;
 }
 
-const mockTokenImages = {
+const mockTokenImages: Record<string, string> = {
   "French Fries": "mock/french-fries.png",
   "French Lessons": "mock/french-lessons.png",
   Ketchup: "mock/ketchup.jpg",
@@ -63,8 +56,10 @@ const AssetsTable: React.FC<AssetsTableProps> = ({
   handleAssetTableFocused,
 }) => {
   dbg && console.log("AssetsTable:isOffer=", isOffer, ",isAccept=", isAccept);
-  isOffer === isAccept &&
+  if (isOffer === isAccept) {
     console.error("Can only have isOffer true or isAccept true");
+  }
+
   const mockTokenDefaultImage = "mock/tokenIcon-A1.png";
   const [hoveredRow, setHoveredRow] = useState<string | null>(null);
   const [clickedRowId, setClickedRowId] = useState<string | null>(null);
@@ -77,11 +72,10 @@ const AssetsTable: React.FC<AssetsTableProps> = ({
   }, [isOffer, isAccept]);
 
   useEffect(() => {
-    //document.addEventListener('mousedown', handleClickOutside);
-    //return () => {
-    //  document.removeEventListener('mousedown', handleClickOutside);
-    //};
+    // Reserved for future outside-click handling if needed
   }, []);
+
+  const tableContainerRef = useRef<HTMLDivElement>(null);
 
   const handleUnhighlightRow = (e: React.MouseEvent<HTMLTableRowElement>) => {
     setAssetTableFocused(false);
@@ -137,7 +131,6 @@ const AssetsTable: React.FC<AssetsTableProps> = ({
     setSelectedAssetId(assetId);
     removeAssetWithAmount(assetId);
   };
-  const tableContainerRef = useRef<HTMLDivElement>(null);
 
   const handleRowClick = (
     e: React.MouseEvent<HTMLTableRowElement>,
@@ -145,10 +138,8 @@ const AssetsTable: React.FC<AssetsTableProps> = ({
   ) => {
     dbg && console.log("handleRowClick():assetId=", assetId.substring(0, 10));
     setAssetTableFocused(true);
-    if (
-      balanceTextToNameMap[assetId] === OFFERED_TEXT ||
-      balanceTextToNameMap[assetId] === ACCEPTED_TEXT
-    ) {
+    const status = balanceTextToNameMap[assetId];
+    if (status === OFFERED_TEXT || status === ACCEPTED_TEXT) {
       removeAssetOffer(assetId);
     } else {
       // Perform the original row click action here
@@ -156,8 +147,6 @@ const AssetsTable: React.FC<AssetsTableProps> = ({
       handleRowAssetClick(e, assetId);
     }
   };
-
-  const theme = useTheme();
 
   return (
     <ThemeProvider theme={web3Theme}>
@@ -185,12 +174,15 @@ const AssetsTable: React.FC<AssetsTableProps> = ({
             border: "1px solid rgba(128, 128, 128, 0.77)",
           }}
         >
-          <Table sx={{ minWidth: 250 }} aria-label="simple table" size="small">
+          <Table sx={{ minWidth: 250 }} aria-label="assets table" size="small">
             <TableBody>
               {assets?.map((asset) => {
                 const iconURL = asset.name
                   ? mockTokenImages[asset.name] || mockTokenDefaultImage
                   : mockTokenDefaultImage;
+                const rowClicked = isClickedRow(asset.assetId);
+                const rowStatus = balanceTextToNameMap[asset.assetId];
+
                 return (
                   <TableRow
                     key={asset.assetId}
@@ -199,8 +191,8 @@ const AssetsTable: React.FC<AssetsTableProps> = ({
                     onClick={(e) => handleRowClick(e, asset.assetId)}
                     style={{
                       cursor: "pointer",
-                      color: isClickedRow(asset.assetId) ? "#000" : "#fff",
-                      backgroundColor: isClickedRow(asset.assetId)
+                      color: rowClicked ? "#000" : "#fff",
+                      backgroundColor: rowClicked
                         ? "#fff"
                         : hoveredRow === asset.assetId
                           ? "#2b2b2b"
@@ -209,7 +201,7 @@ const AssetsTable: React.FC<AssetsTableProps> = ({
                   >
                     <TableCell
                       style={{
-                        color: isClickedRow(asset.assetId) ? "#000" : "#fff",
+                        color: rowClicked ? "#000" : "#fff",
                       }}
                     >
                       <Grid
@@ -233,18 +225,15 @@ const AssetsTable: React.FC<AssetsTableProps> = ({
                             <span>{asset.name}</span>
                             <br />
                             <span>
-                              {balanceTextToNameMap[asset.assetId]}:{" "}
-                              {asset.balance}
+                              {rowStatus}: {asset.balance}
                             </span>
                           </div>
                         </Grid>
                         <Grid item xs={2} />
                         <Grid item xs={1}>
                           {hoveredRow === asset.assetId &&
-                            (balanceTextToNameMap[asset.assetId] ===
-                              OFFERED_TEXT ||
-                              balanceTextToNameMap[asset.assetId] ===
-                                ACCEPTED_TEXT) && (
+                            (rowStatus === OFFERED_TEXT ||
+                              rowStatus === ACCEPTED_TEXT) && (
                               <IconButton
                                 onClick={() => {
                                   removeAssetOffer(asset.assetId);

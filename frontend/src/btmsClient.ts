@@ -3,20 +3,8 @@
 // 1) get the SAME btms instance the rest of the app uses
 import { btms } from "./btms";
 import * as bsv from "@bsv/sdk";
-import { createLocalOverlay } from "./btms/localOverlay";
 
-// 2) try to attach a local-overlay requester to that instance
-try {
-  const { requester } = createLocalOverlay();
-  if (btms && typeof btms === "object") {
-    // TS thinks requester is private on BTMS, but we know we can patch it
-    (btms as any).requester = requester;
-  }
-} catch (err) {
-  console.warn("[btmsClient] could not attach local overlay:", err);
-}
-
-// 3) expose *some* wallet so components that expect { wallet } don’t crash
+// 1) expose *some* wallet so components that expect { wallet } don’t crash
 let wallet: any = null;
 if (typeof window !== "undefined") {
   const win = window as any;

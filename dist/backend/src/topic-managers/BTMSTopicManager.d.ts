@@ -1,4 +1,5 @@
-import { AdmittanceInstructions, TopicManager } from "@bsv/overlay";
+import { AdmittanceInstructions, TopicManager } from '@bsv/overlay';
+import { BEEF, PositiveIntegerOrZero } from '@bsv/sdk';
 /**
  * BTMS Topic Manager (pushdrop-free).
  *
@@ -13,20 +14,17 @@ import { AdmittanceInstructions, TopicManager } from "@bsv/overlay";
  * on the separate `pushdrop` package or BRC-48 conventions.
  */
 export default class BTMSTopicManager implements TopicManager {
-  /**
-   * Decide which outputs from the submitted tx should be admitted to this topic.
-   * For the original BTMS behavior, we simply admit all outputs that parse OK.
-   */
-  identifyAdmissibleOutputs(
-    beef: number[],
-    previousCoins: number[],
-  ): Promise<AdmittanceInstructions>;
-  getDocumentation(): Promise<string>;
-  getMetaData(): Promise<{
-    name: string;
-    shortDescription: string;
-    iconURL?: string;
-    version?: string;
-    informationURL?: string;
-  }>;
+    /**
+     * Decide which outputs from the submitted tx should be admitted to this topic.
+     * For the original BTMS behavior, we simply admit all outputs that parse OK.
+     */
+    identifyAdmissibleOutputs(beef: BEEF, previousCoins: PositiveIntegerOrZero[]): Promise<AdmittanceInstructions>;
+    getDocumentation(): Promise<string>;
+    getMetaData(): Promise<{
+        name: string;
+        shortDescription: string;
+        iconURL?: string;
+        version?: string;
+        informationURL?: string;
+    }>;
 }

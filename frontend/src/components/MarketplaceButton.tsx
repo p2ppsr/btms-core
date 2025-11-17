@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Button, Grid, ThemeProvider, useTheme } from "@mui/material";
+import { Button, Grid, ThemeProvider } from "@mui/material";
 import { styled } from "@mui/system";
 import web3Theme from "../theme";
 
@@ -14,6 +14,7 @@ interface MarketplaceButtonProps {
   handleOnClickConfirmed?: () => void;
   disable: boolean;
 }
+
 const MarketplaceButton: React.FC<MarketplaceButtonProps> = ({
   dbg = false,
   isOffer,
@@ -33,7 +34,7 @@ const MarketplaceButton: React.FC<MarketplaceButtonProps> = ({
     $setIsAccept(isAccept);
   }, [isOffer, isAccept]);
 
-  const StyledButton = styled(Button)(({ theme }) => ({
+  const StyledButton = styled(Button)({
     // Apply styles for the button text
     "& .MuiButton-label": {
       color: "#888", // Grey text color
@@ -47,7 +48,7 @@ const MarketplaceButton: React.FC<MarketplaceButtonProps> = ({
       opacity: 1.0,
       backgroundColor: "#fff", // Maintain white background on hover
     },
-  }));
+  });
 
   const DisabledButton = styled(Button)(({ theme }) => ({
     // Apply styles for the disabled button
@@ -58,27 +59,25 @@ const MarketplaceButton: React.FC<MarketplaceButtonProps> = ({
     },
   }));
 
-  const handleOnMouseEnter = () => {
+  const handleOnMouseEnter = (): void => {
     dbg && console.log("handleOnMouseEnter()");
     handleOnMouseEnterConfirmed && handleOnMouseEnterConfirmed();
   };
 
-  const handleOnMouseLeave = () => {
+  const handleOnMouseLeave = (): void => {
     dbg && console.log("handleOnMouseLeave()");
     handleOnMouseLeaveConfirmed && handleOnMouseLeaveConfirmed();
   };
 
-  const handleOnBlur = () => {
+  const handleOnBlur = (): void => {
     dbg && console.log("handleOnBlur()");
     handleOnBlurConfirmed && handleOnBlurConfirmed();
   };
 
-  const handleOnClick = () => {
+  const handleOnClick = (): void => {
     dbg && console.log("handleOnClick()");
     handleOnClickConfirmed && handleOnClickConfirmed();
   };
-
-  const theme = useTheme();
 
   dbg && console.log("MarketplaceButton(): disable=", disable);
 
@@ -86,7 +85,6 @@ const MarketplaceButton: React.FC<MarketplaceButtonProps> = ({
     <ThemeProvider theme={web3Theme}>
       <Grid item paddingTop="1em">
         {disable ? (
-          // Render disabled button if conditional is true
           <DisabledButton
             onMouseEnter={handleOnMouseEnter}
             onMouseLeave={handleOnMouseLeave}
@@ -97,7 +95,6 @@ const MarketplaceButton: React.FC<MarketplaceButtonProps> = ({
             {text}
           </DisabledButton>
         ) : (
-          // Render styled button otherwise
           <StyledButton
             onMouseEnter={handleOnMouseEnter}
             onMouseLeave={handleOnMouseLeave}

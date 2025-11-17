@@ -19,7 +19,7 @@ import {
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import { toast } from "react-toastify";
-import BTMS from "../../utils/BTMS";
+import btmsModule from "../../btmsClient";
 import type { IncomingPayment } from "../../btmsTypes";
 import { SatoshiValue } from "@bsv/sdk";
 
@@ -31,6 +31,22 @@ type ReceiveProps = {
   onReloadNeeded?: () => Promise<void> | void;
   fromMessageBoxOnly?: boolean;
 };
+
+type BTMSClient = {
+  listIncomingPayments: (
+    assetId?: string,
+  ) => Promise<IncomingPayment[] | unknown>;
+  acceptIncomingPayment: (
+    assetId: string,
+    payment: IncomingPayment,
+  ) => Promise<unknown>;
+  refundIncomingTransaction: (
+    assetId: string,
+    payment: IncomingPayment,
+  ) => Promise<unknown>;
+};
+
+const btms = btmsModule as Partial<BTMSClient>;
 
 const Receive: React.FC<ReceiveProps> = ({
   assetId,
@@ -46,7 +62,7 @@ const Receive: React.FC<ReceiveProps> = ({
   const [incoming, setIncoming] = useState<IncomingPayment[]>([]);
 
   // 1) get identity from the wallet the old way: window.walletClient.getPublicKey({ identityKey: true })
-  //    our updated src/utils/BTMS.ts patches btms-core usage so the backend won't crash.
+  //    our updated src/btmsClient.ts patches btms-core usage so the backend won't crash.
   useEffect(() => {
     let cancelled = false;
 
@@ -57,7 +73,13 @@ const Receive: React.FC<ReceiveProps> = ({
           return;
         }
 
-        const win = window as any;
+        const win = window as typeof window & {
+          walletClient?: {
+            getPublicKey?: (args: {
+              identityKey: true;
+            }) => Promise<string | { publicKey?: string }>;
+          };
+        };
         const wallet = win.walletClient;
 
         if (!wallet || typeof wallet.getPublicKey !== "function") {
@@ -90,21 +112,25 @@ const Receive: React.FC<ReceiveProps> = ({
 
   // 2) incoming loader — now always call the real BTMS singleton
   const loadIncoming = useCallback(async (desiredAssetId?: string) => {
-    if (!BTMS || typeof (BTMS as any).listIncomingPayments !== "function") {
+    if (!btms || typeof btms.listIncomingPayments !== "function") {
       toast.error("BTMS not available in frontend");
       return;
     }
     setLoading(true);
     try {
       const msgs = desiredAssetId
-        ? await (BTMS as any).listIncomingPayments(desiredAssetId)
-        : await (BTMS as any).listIncomingPayments();
+        ? await btms.listIncomingPayments(desiredAssetId)
+        : await btms.listIncomingPayments();
 
-      const clean: IncomingPayment[] = Array.isArray(msgs) ? msgs : [];
+      const clean: IncomingPayment[] = Array.isArray(msgs)
+        ? (msgs as IncomingPayment[])
+        : [];
       setIncoming(clean);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err);
-      toast.error(err?.message || "Failed to load incoming payments");
+      const message =
+        err instanceof Error ? err.message : "Failed to load incoming payments";
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -131,9 +157,14 @@ const Receive: React.FC<ReceiveProps> = ({
   };
 
   const handleAccept = async (payment: IncomingPayment) => {
+    if (!btms || typeof btms.acceptIncomingPayment !== "function") {
+      toast.error("BTMS acceptIncomingPayment not available");
+      return;
+    }
+
     try {
       setLoading(true);
-      await (BTMS as any).acceptIncomingPayment(assetId || "", payment);
+      await btms.acceptIncomingPayment(assetId || "", payment);
       // refresh lists + parent
       await loadIncoming(assetId);
       await Promise.resolve(onReloadNeeded());
@@ -141,27 +172,36 @@ const Receive: React.FC<ReceiveProps> = ({
         `${payment.amount} ${asset?.name ?? "tokens"} successfully received (message acknowledged).`,
       );
       setOpen(false);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err);
-      toast.error(err?.message || "Failed to accept payment");
+      const message =
+        err instanceof Error ? err.message : "Failed to accept payment";
+      toast.error(message);
     } finally {
       setLoading(false);
     }
   };
 
   const handleRefund = async (payment: IncomingPayment) => {
+    if (!btms || typeof btms.refundIncomingTransaction !== "function") {
+      toast.error("BTMS refundIncomingTransaction not available");
+      return;
+    }
+
     try {
       setLoading(true);
-      await (BTMS as any).refundIncomingTransaction(assetId || "", payment);
+      await btms.refundIncomingTransaction(assetId || "", payment);
       await loadIncoming(assetId);
       await Promise.resolve(onReloadNeeded());
       toast.success(
         `You refunded ${payment.amount} ${asset?.name ?? "tokens"}.`,
       );
       setOpen(false);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err);
-      toast.error(err?.message || "Failed to refund payment");
+      const message =
+        err instanceof Error ? err.message : "Failed to refund payment";
+      toast.error(message);
     } finally {
       setLoading(false);
     }

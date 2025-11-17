@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { TextField, Grid } from "@mui/material";
-import { ThemeProvider, useTheme } from "@mui/material/styles";
+import { ThemeProvider } from "@mui/material/styles";
 import web3Theme from "../theme";
 import { isStringNumber } from "../utils/general";
 import { SatoshiValue } from "@bsv/sdk";
@@ -53,19 +53,6 @@ const InputAmount: React.FC<InputAmountProps> = ({
   const [disabled, setDisabled] = useState<boolean>(disable);
   const [validatedAmount, setValidatedAmount] = useState<boolean>(false);
 
-  //const [reset, setReset] = useState<boolean>(false);
-
-  /*
-  console.log('assetSelected=', assetSelected)
-  console.log('balance=', balance)
-  console.log('disabled=', disabled)
-  console.log('value=', value)
-  console.log('validatedAmount=', validatedAmount)
-  console.log('resetField=', resetField)
-  console.log('')
-  */
-  // Use useEffect to perform actions when `reset` state changes
-  // Use useEffect to perform actions when `resetField` changes
   useEffect(() => {
     dbg && console.log("InputAmount:useEffect()");
     if (resetField) {
@@ -81,7 +68,7 @@ const InputAmount: React.FC<InputAmountProps> = ({
       unsetResetInputAmount();
       setValue(AMOUNT_TEXT);
     }
-  }, [resetField]); // Include `setAddAssetDisabled` as a dependency to ensure it's always up-to-date
+  }, [resetField]);
 
   useEffect(() => {
     $setIsOffer(isOffer);
@@ -110,7 +97,7 @@ const InputAmount: React.FC<InputAmountProps> = ({
         handleOnClick();
         setValue("");
       }, FLASH_WARNING_PERIOD_MSECS);
-      return; // Exit early if input is not a valid number
+      return;
     }
 
     const number = parseFloat(value);
@@ -145,7 +132,6 @@ const InputAmount: React.FC<InputAmountProps> = ({
   const handleMouseEnter = () => {
     dbg && console.log("handleMouseEnter()");
     setFocused(false);
-    //handleInputAmountFocused(true, $isOffer, $isAccept)
     if (!disable && !validatedAmount) {
       if (assetSelected) {
         const text: string = `${AMOUNT_TEXT}(available ${balance})`;
@@ -169,7 +155,6 @@ const InputAmount: React.FC<InputAmountProps> = ({
   const handleMouseLeave = () => {
     dbg && console.log("handleMouseLeave()");
     setFocused(false);
-    //handleInputAmountFocused(false, $isOffer, $isAccept)
     if (!disable && !validatedAmount) {
       if (assetSelected) {
         setValue(AMOUNT_TEXT);
@@ -191,8 +176,6 @@ const InputAmount: React.FC<InputAmountProps> = ({
   const fieldStyle = {
     borderRadius: "10px",
   };
-
-  const theme = useTheme();
 
   return (
     <ThemeProvider theme={web3Theme}>
