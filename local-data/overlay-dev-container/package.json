@@ -13,8 +13,9 @@
     "@bsv/lars": "^1.5.7",
     "@bsv/overlay": "^0.4.0",
     "@bsv/sdk": "^1.8.13",
+    "express": "^5.1.0",
     "json-stable-stringify": "^1.0.2",
-    "@bsv/overlay-express": "^0.8.2",
+    "@bsv/overlay-express": "^0.8.4",
     "mysql2": "^3.11.5",
     "tsx": "^4.19.2"
   },

@@ -1,6 +1,6 @@
 // src/components/ReceiveDialog.tsx
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState } from 'react'
 import {
   Dialog,
   DialogTitle,
@@ -10,9 +10,9 @@ import {
   Typography,
   Box,
   IconButton,
-  Tooltip,
-} from "@mui/material";
-import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+  Tooltip
+} from '@mui/material'
+import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 
 /**
  * Props for the ReceiveDialog.
@@ -23,51 +23,44 @@ import ContentCopyIcon from "@mui/icons-material/ContentCopy";
  * @property tokenSymbol Optional token symbol shown in the title (e.g. "duck")
  */
 export interface ReceiveDialogProps {
-  open: boolean;
-  onClose: () => void;
-  identityKey: string | null;
-  tokenSymbol?: string;
+  open: boolean
+  onClose: () => void
+  identityKey: string | null
+  tokenSymbol?: string
 }
 
-const ReceiveDialog: React.FC<ReceiveDialogProps> = ({
-  open,
-  onClose,
-  identityKey,
-  tokenSymbol,
-}) => {
-  const [copied, setCopied] = useState(false);
+const ReceiveDialog: React.FC<ReceiveDialogProps> = ({ open, onClose, identityKey, tokenSymbol }) => {
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     if (open) {
-      console.log(
-        "[Receive] rendering, identityKey =",
-        identityKey ?? "<none>",
-      );
-      setCopied(false);
+      // console.log(
+      //   "[Receive] rendering, identityKey =",
+      //   identityKey ?? "<none>",
+      // );
+      setCopied(false)
     }
-  }, [open, identityKey]);
+  }, [open, identityKey])
 
   const handleCopy = async () => {
-    if (!identityKey) return;
+    if (!identityKey) return
     try {
-      await navigator.clipboard.writeText(identityKey);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      await navigator.clipboard.writeText(identityKey)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
     } catch (err) {
-      console.warn("Failed to copy identityKey to clipboard", err);
+      console.warn('Failed to copy identityKey to clipboard', err)
     }
-  };
+  }
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>
-        Receive {tokenSymbol ? `“${tokenSymbol}”` : "Tokens"}
-      </DialogTitle>
+      <DialogTitle>Receive {tokenSymbol ? `“${tokenSymbol}”` : 'Tokens'}</DialogTitle>
 
       <DialogContent dividers>
         <Typography variant="body1" gutterBottom>
-          Share this <strong>Receive identity key</strong> with the sender. They
-          will paste it into their BTMS “Send” screen to send you tokens.
+          Share this <strong>Receive identity key</strong> with the sender. They will paste it into their BTMS “Send”
+          screen to send you tokens.
         </Typography>
 
         <Box
@@ -75,26 +68,26 @@ const ReceiveDialog: React.FC<ReceiveDialogProps> = ({
           p={2}
           borderRadius={1}
           sx={{
-            bgcolor: "background.default",
-            border: (theme) => `1px solid ${theme.palette.divider}`,
-            display: "flex",
-            alignItems: "center",
-            gap: 1,
+            bgcolor: 'background.default',
+            border: theme => `1px solid ${theme.palette.divider}`,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1
           }}
         >
           <Box
             sx={{
               flex: 1,
-              fontFamily: "monospace",
-              fontSize: "0.8rem",
-              wordBreak: "break-all",
+              fontFamily: 'monospace',
+              fontSize: '0.8rem',
+              wordBreak: 'break-all'
             }}
           >
-            {identityKey ?? "No identity key available"}
+            {identityKey ?? 'No identity key available'}
           </Box>
 
           {identityKey && (
-            <Tooltip title={copied ? "Copied!" : "Copy to clipboard"}>
+            <Tooltip title={copied ? 'Copied!' : 'Copy to clipboard'}>
               <IconButton size="small" onClick={handleCopy}>
                 <ContentCopyIcon fontSize="small" />
               </IconButton>
@@ -104,8 +97,8 @@ const ReceiveDialog: React.FC<ReceiveDialogProps> = ({
 
         <Box mt={2}>
           <Typography variant="caption" color="text.secondary">
-            Tip: This identity key is not a password. It can be safely shared
-            with someone who wants to send you BTMS tokens.
+            Tip: This identity key is not a password. It can be safely shared with someone who wants to send you BTMS
+            tokens.
           </Typography>
         </Box>
       </DialogContent>
@@ -116,7 +109,7 @@ const ReceiveDialog: React.FC<ReceiveDialogProps> = ({
         </Button>
       </DialogActions>
     </Dialog>
-  );
-};
+  )
+}
 
-export default ReceiveDialog;
+export default ReceiveDialog

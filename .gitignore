@@ -1,5 +1,7 @@
+local-data
 node_modules
 out
 dist
 tsconfig.tsbuildinfo
 *.tgz
+.prettierrc

@@ -10,14 +10,14 @@ function normalizeBytes(value) {
     if (value == null)
         return undefined;
     if (Array.isArray(value)) {
-        return value.map((n) => Number(n));
+        return value.map(n => Number(n));
     }
     if (value instanceof Uint8Array) {
-        return Array.from(value, (b) => Number(b));
+        return Array.from(value, b => Number(b));
     }
     // Node.js Buffer case
     if (typeof Buffer !== 'undefined' && Buffer.isBuffer(value)) {
-        return Array.from(value, (b) => Number(b));
+        return Array.from(value, b => Number(b));
     }
     return undefined;
 }
@@ -60,7 +60,7 @@ class BTMSStorage {
      */
     async findAll() {
         const docs = await this.collection.find({}).toArray();
-        return docs.map((d) => ({
+        return docs.map(d => ({
             ...d,
             lockingScript: normalizeBytes(d.lockingScript),
             beef: normalizeBytes(d.beef)
@@ -72,7 +72,7 @@ class BTMSStorage {
      */
     async findByAssetId(assetId) {
         const docs = await this.collection.find({ assetId }).toArray();
-        return docs.map((d) => ({
+        return docs.map(d => ({
             ...d,
             lockingScript: normalizeBytes(d.lockingScript),
             beef: normalizeBytes(d.beef)

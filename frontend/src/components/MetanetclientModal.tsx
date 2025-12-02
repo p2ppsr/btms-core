@@ -10,20 +10,20 @@
  * @version 1.0.0
  */
 
-import React from "react";
-import { Typography, Link, Box } from "@mui/material";
+import React from 'react'
+import { Typography, Link, Box } from '@mui/material'
 
 // react-qr-code ships valid JS but TS doesn't like its class-type signature.
 // We coerce it through unknown to a simple function component.
 /* eslint-disable @typescript-eslint/ban-ts-comment */
 // @ts-ignore – library has non-ideal TS typings
-import QRCodeRaw from "react-qr-code";
+import QRCodeRaw from 'react-qr-code'
 /* eslint-enable @typescript-eslint/ban-ts-comment */
 
 const QRCode = QRCodeRaw as unknown as React.ComponentType<{
-  value: string;
-  size?: number;
-}>;
+  value: string
+  size?: number
+}>
 
 /**
  * Props for the `MetanetclientModal` component.
@@ -32,8 +32,8 @@ const QRCode = QRCodeRaw as unknown as React.ComponentType<{
  * @property {string} platformLabel - Human-readable platform label ("Android", "iOS", "macOS", etc.).
  */
 interface Props {
-  downloadURL: string;
-  platformLabel: string;
+  downloadURL: string
+  platformLabel: string
 }
 
 /**
@@ -51,24 +51,21 @@ interface Props {
  * @param {Props} props - The `downloadURL` and `platformLabel` to display.
  * @returns {JSX.Element} The rendered modal component.
  */
-const MetanetclientModal: React.FC<Props> = ({
-  downloadURL,
-  platformLabel,
-}) => {
-  const isMobile = platformLabel === "Android" || platformLabel === "iOS";
-  const clientType = isMobile ? "Metanet Mobile" : "Metanet Desktop";
+const MetanetclientModal: React.FC<Props> = ({ downloadURL, platformLabel }) => {
+  const isMobile = platformLabel === 'Android' || platformLabel === 'iOS'
+  const clientType = isMobile ? 'Metanet Mobile' : 'Metanet Desktop'
 
   return (
     <Box
       sx={{
-        bgcolor: "#111",
-        border: "1px solid #555",
-        borderRadius: "12px",
+        bgcolor: '#111',
+        border: '1px solid #555',
+        borderRadius: '12px',
         p: 4,
-        textAlign: "center",
+        textAlign: 'center',
         maxWidth: 400,
-        color: "#fff",
-        boxShadow: 5,
+        color: '#fff',
+        boxShadow: 5
       }}
     >
       <Typography variant="h6" fontWeight="bold" gutterBottom>
@@ -76,14 +73,8 @@ const MetanetclientModal: React.FC<Props> = ({
       </Typography>
 
       <Typography gutterBottom>
-        You can download it for your{" "}
-        <Link
-          href={downloadURL}
-          underline="hover"
-          target="_blank"
-          rel="noopener noreferrer"
-          sx={{ color: "#3aa0ff" }}
-        >
+        You can download it for your{' '}
+        <Link href={downloadURL} underline="hover" target="_blank" rel="noopener noreferrer" sx={{ color: '#3aa0ff' }}>
           {platformLabel}
         </Link>
         :
@@ -95,7 +86,7 @@ const MetanetclientModal: React.FC<Props> = ({
           underline="hover"
           target="_blank"
           rel="noopener noreferrer"
-          sx={{ color: "#3aa0ff" }}
+          sx={{ color: '#3aa0ff' }}
         >
           All Metanet clients
         </Link>
@@ -107,7 +98,7 @@ const MetanetclientModal: React.FC<Props> = ({
         </Box>
       )}
     </Box>
-  );
-};
+  )
+}
 
-export default MetanetclientModal;
+export default MetanetclientModal

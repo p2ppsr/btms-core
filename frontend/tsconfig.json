@@ -1,30 +1,59 @@
 {
   "compilerOptions": {
-    "target": "es2017",
-    "module": "commonjs",
-    "moduleResolution": "node",
-    "sourceMap": true,
-    "outDir": "./out",
-    "allowJs": true,
-    "esModuleInterop": true,
-    "forceConsistentCasingInFileNames": true,
-    "strict": true,
-    "skipLibCheck": true,
-    "noImplicitAny": false,
-    "declaration": true,
-    "declarationMap": true,
-    "rootDir": ".",
-    "composite": true,
-    "noImplicitOverride": true,
+    // ---------------------------------------------------------
+    // Vite requires modern ES module + modern target
+    // ---------------------------------------------------------
+    "target": "ES2020",
+    "module": "ESNext",
+
+    // ---------------------------------------------------------
+    // MUST use "bundler" for Vite (not "node")
+    // fixes many path & import.meta issues
+    // ---------------------------------------------------------
+    "moduleResolution": "bundler",
+
+    // ---------------------------------------------------------
+    // Browser + React libs
+    // ---------------------------------------------------------
+    "lib": ["DOM", "DOM.Iterable", "ES2020"],
+
     "jsx": "react-jsx",
 
-    // 👇 make TS resolve from src/ first
+    // ---------------------------------------------------------
+    // Standard TS settings
+    // ---------------------------------------------------------
+    "sourceMap": true,
+    "allowJs": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "noImplicitAny": false,
+    "noImplicitOverride": true,
+
+    // You do NOT want these for Vite - remove emit
+    "declaration": false,
+    "declarationMap": false,
+
+    // ---------------------------------------------------------
+    // Improve import resolution inside src/
+    // ---------------------------------------------------------
     "baseUrl": "src",
+
     "paths": {
       "btms-core/dist/frontend/src/btms": ["btms/index.ts"],
       "btms-core/dist/frontend/src/btms/index.js": ["btms/index.ts"]
-    }
+    },
+
+    // ---------------------------------------------------------
+    // This is REQUIRED so import.meta.hot works properly
+    // ---------------------------------------------------------
+    "types": ["vite/client"]
   },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "jest.config.ts"]
+
+  // -----------------------------------------------------------
+  // Vite expects these include/exclude settings
+  // -----------------------------------------------------------
+  "include": ["src"],
+  "exclude": ["node_modules"]
 }

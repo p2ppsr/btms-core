@@ -4,3 +4,8 @@ node_modules
 /mysql
 /mongo
 /dist
+/local-data
+/out
+/dist
+tsconfig.tsbuildinfo
+*.tgz

@@ -17,6 +17,13 @@ import { BTMSStorage } from './BTMSStorage';
  * We still do NOT:
  *  - decode pushdrop
  *  - infer assetId/amount/metadata from the script on the overlay
+ *
+ * NOTE (2025-11-20):
+ *  - A future formula `"history"` is defined in `lookup()` as a stub for
+ *    `GET /overlay/ls_btms/history?identityKey=<active>`.
+ *    Implementation of that formula requires extending BTMSStorage to
+ *    actually persist per-identity history rows (sends, incoming,
+ *    internalization events, refunds).
  */
 declare class BTMSLookupService implements LookupService {
     storage: BTMSStorage;
@@ -57,6 +64,11 @@ declare class BTMSLookupService implements LookupService {
      *    (`beef` and `lockingScript` are extra runtime fields; we cast to keep TS happy).
      *
      *  - "findAll" / "findByAssetId" return a simple array of { txid, outputIndex }.
+     *
+     *  - "history" (stub) will eventually back:
+     *      GET /overlay/ls_btms/history?identityKey=<active>
+     *    but currently returns [] until BTMSStorage is extended to store
+     *    per-identity event rows.
      */
     lookup(question: LookupQuestion): Promise<LookupFormula>;
 }

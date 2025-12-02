@@ -1,45 +1,45 @@
-import React, { useState, useEffect } from "react";
-import type { Asset } from "../btmsTypes";
+import React, { useState, useEffect } from 'react'
+import type { Asset } from '../btmsTypes'
 
 interface AssetManagementProps {
-  assets: Asset[]; // List of assets passed as props
+  assets: Asset[] // List of assets passed as props
 }
 
 const AssetManagement: React.FC<AssetManagementProps> = ({ assets }) => {
   const [internalAssetsMap, setInternalAssetsMap] = useState<{
-    [assetId: string]: Asset;
-  }>({});
+    [assetId: string]: Asset
+  }>({})
 
   // useEffect to update internalAssetsMap state when assets prop changes
   useEffect(() => {
     const updateAssetsList = () => {
       // Create a map of new assets for quick lookup by assetId
-      const newAssetsMap: { [assetId: string]: Asset } = {};
-      Object.values(assets).forEach((asset) => {
-        newAssetsMap[asset.assetId] = asset;
-      });
+      const newAssetsMap: { [assetId: string]: Asset } = {}
+      Object.values(assets).forEach(asset => {
+        newAssetsMap[asset.assetId] = asset
+      })
 
       // Update internalAssetsMap state based on changes in assets prop
-      const updatedAssets: { [assetId: string]: Asset } = {};
-      Object.keys(newAssetsMap).forEach((assetId) => {
-        const newAsset = newAssetsMap[assetId];
-        const existingAsset = internalAssetsMap[assetId];
+      const updatedAssets: { [assetId: string]: Asset } = {}
+      Object.keys(newAssetsMap).forEach(assetId => {
+        const newAsset = newAssetsMap[assetId]
+        const existingAsset = internalAssetsMap[assetId]
 
         // Check if existingAsset is undefined or if assets are not equal
         if (!existingAsset || !areAssetsEqual(existingAsset, newAsset)) {
-          updatedAssets[assetId] = newAsset;
+          updatedAssets[assetId] = newAsset
         }
-      });
+      })
 
       // Update internalAssetsMap state with the updated assets
-      setInternalAssetsMap((prevAssets) => ({
+      setInternalAssetsMap(prevAssets => ({
         ...prevAssets,
-        ...updatedAssets,
-      }));
-    };
+        ...updatedAssets
+      }))
+    }
 
-    updateAssetsList(); // Call updateAssetsList when assets prop changes
-  }, [assets, internalAssetsMap]);
+    updateAssetsList() // Call updateAssetsList when assets prop changes
+  }, [assets, internalAssetsMap])
 
   // Helper function to compare two assets for equality
   const areAssetsEqual = (assetOld: Asset, assetNew: Asset): boolean => {
@@ -48,8 +48,8 @@ const AssetManagement: React.FC<AssetManagementProps> = ({ assets }) => {
       assetOld.balance === assetNew.balance && assetOld.name === assetNew.name
       // Add more properties for comparison as needed
       // Example: asset1.attr === asset2.attr
-    );
-  };
+    )
+  }
 
   return (
     <div>
@@ -57,7 +57,7 @@ const AssetManagement: React.FC<AssetManagementProps> = ({ assets }) => {
       <pre>{JSON.stringify(internalAssetsMap, null, 2)}</pre>
       */}
     </div>
-  );
-};
+  )
+}
 
-export default AssetManagement;
+export default AssetManagement

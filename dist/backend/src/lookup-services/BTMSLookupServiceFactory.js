@@ -22,6 +22,13 @@ const BTMSLookupDocs_md_1 = __importDefault(require("./BTMSLookupDocs.md"));
  * We still do NOT:
  *  - decode pushdrop
  *  - infer assetId/amount/metadata from the script on the overlay
+ *
+ * NOTE (2025-11-20):
+ *  - A future formula `"history"` is defined in `lookup()` as a stub for
+ *    `GET /overlay/ls_btms/history?identityKey=<active>`.
+ *    Implementation of that formula requires extending BTMSStorage to
+ *    actually persist per-identity history rows (sends, incoming,
+ *    internalization events, refunds).
  */
 class BTMSLookupService {
     constructor(storage) {
@@ -41,7 +48,7 @@ class BTMSLookupService {
     async getMetaData() {
         return {
             name: 'BTMS Lookup Service',
-            shortDescription: 'Indexes BTMS UTXOs; supports findAll / by-asset / by-outpoint (no PushDrop).'
+            shortDescription: "Indexes BTMS UTXOs; supports findAll / by-asset / by-outpoint (no PushDrop). A stub 'history' formula is reserved for per-identity history."
         };
     }
     /**
@@ -64,10 +71,7 @@ class BTMSLookupService {
         }
         const wholePayload = payload;
         const outputIndex = Number(wholePayload.outputIndex ?? 0);
-        const atomicBEEFSource = wholePayload.atomicBEEF ??
-            wholePayload.atomicBeef ??
-            wholePayload.beef ??
-            wholePayload.context;
+        const atomicBEEFSource = wholePayload.atomicBEEF ?? wholePayload.atomicBeef ?? wholePayload.beef ?? wholePayload.context;
         if (!atomicBEEFSource) {
             console.log('[BTMSLookupService] outputAdmittedByTopic: no atomicBEEF/BEEF on payload', JSON.stringify({
                 mode: payload.mode,
@@ -77,14 +81,13 @@ class BTMSLookupService {
         }
         let beef;
         if (Array.isArray(atomicBEEFSource)) {
-            beef = atomicBEEFSource.map((x) => Number(x));
+            beef = atomicBEEFSource.map(x => Number(x));
         }
         else if (atomicBEEFSource instanceof Uint8Array) {
-            beef = Array.from(atomicBEEFSource, (b) => Number(b));
+            beef = Array.from(atomicBEEFSource, b => Number(b));
         }
         else {
-            const ctorName = atomicBEEFSource?.constructor
-                ?.name ?? 'unknown';
+            const ctorName = atomicBEEFSource?.constructor?.name ?? 'unknown';
             console.log('[BTMSLookupService] outputAdmittedByTopic: unsupported atomicBEEF/BEEF type', JSON.stringify({
                 type: typeof atomicBEEFSource,
                 constructor: ctorName
@@ -122,21 +125,21 @@ class BTMSLookupService {
                 }, null, 2));
             }
             else if (Array.isArray(ls)) {
-                lockingScriptBytes = ls.map((n) => Number(n));
+                lockingScriptBytes = ls.map(n => Number(n));
             }
             else if (ls instanceof Uint8Array) {
-                lockingScriptBytes = Array.from(ls, (b) => Number(b));
+                lockingScriptBytes = Array.from(ls, b => Number(b));
             }
             else if (typeof Buffer !== 'undefined' && Buffer.isBuffer(ls)) {
-                lockingScriptBytes = Array.from(ls, (b) => Number(b));
+                lockingScriptBytes = Array.from(ls, b => Number(b));
             }
             else if (typeof ls.toBytes === 'function') {
                 const u8 = ls.toBytes();
-                lockingScriptBytes = Array.from(u8, (b) => Number(b));
+                lockingScriptBytes = Array.from(u8, b => Number(b));
             }
             else if (typeof ls.toBuffer === 'function') {
                 const buf = ls.toBuffer();
-                lockingScriptBytes = Array.from(buf, (b) => Number(b));
+                lockingScriptBytes = Array.from(buf, b => Number(b));
             }
             else if (typeof ls.toHex === 'function') {
                 // 👉 Script-like object with toHex()
@@ -155,8 +158,7 @@ class BTMSLookupService {
                 }
             }
             else {
-                const ctorName = ls?.constructor?.name ??
-                    'unknown';
+                const ctorName = ls?.constructor?.name ?? 'unknown';
                 console.log('[BTMSLookupService] outputAdmittedByTopic: unsupported lockingScript shape', JSON.stringify({
                     txid,
                     outputIndex,
@@ -170,9 +172,7 @@ class BTMSLookupService {
                 hasBeef: Array.isArray(beef),
                 beefLength: Array.isArray(beef) ? beef.length : 0,
                 hasLockingScript: Array.isArray(lockingScriptBytes),
-                lockingScriptLength: lockingScriptBytes
-                    ? lockingScriptBytes.length
-                    : 0
+                lockingScriptLength: lockingScriptBytes ? lockingScriptBytes.length : 0
             }, null, 2));
             // Persist minimal record; assetId/amount/metadata are intentionally omitted
             await this.storage.saveOnAdmit({
@@ -215,6 +215,11 @@ class BTMSLookupService {
      *    (`beef` and `lockingScript` are extra runtime fields; we cast to keep TS happy).
      *
      *  - "findAll" / "findByAssetId" return a simple array of { txid, outputIndex }.
+     *
+     *  - "history" (stub) will eventually back:
+     *      GET /overlay/ls_btms/history?identityKey=<active>
+     *    but currently returns [] until BTMSStorage is extended to store
+     *    per-identity event rows.
      */
     async lookup(question) {
         // Normalize query shape (accept {service,query:{...}} or flat)
@@ -224,9 +229,7 @@ class BTMSLookupService {
             : src;
         const q = innerQuery;
         // 1) Exact outpoint (Meter-style): { txid, vout }
-        if (typeof q.txid === 'string' &&
-            typeof q.vout === 'number' &&
-            Number.isFinite(q.vout)) {
+        if (typeof q.txid === 'string' && typeof q.vout === 'number' && Number.isFinite(q.vout)) {
             const txid = q.txid;
             const outputIndex = q.vout;
             console.log('[BTMSLookupService] lookup: exact outpoint query', JSON.stringify({
@@ -245,9 +248,7 @@ class BTMSLookupService {
                 hasBeef: Array.isArray(match.beef),
                 beefLength: Array.isArray(match.beef) ? match.beef.length : 0,
                 hasLockingScript: Array.isArray(match.lockingScript),
-                lockingScriptLength: Array.isArray(match.lockingScript)
-                    ? match.lockingScript.length
-                    : 0
+                lockingScriptLength: Array.isArray(match.lockingScript) ? match.lockingScript.length : 0
             }, null, 2));
             const entry = {
                 txid: match.txid,
@@ -263,11 +264,22 @@ class BTMSLookupService {
             return [entry];
         }
         // 2) Named formula or boolean flag (legacy shapes)
-        const formula = typeof q.formula === 'string'
-            ? q.formula
-            : q.findAll
-                ? 'findAll'
-                : undefined;
+        const formula = typeof q.formula === 'string' ? q.formula : q.findAll ? 'findAll' : undefined;
+        // 2a) NEW: history (by identityKey) — stub implementation
+        if (formula === 'history') {
+            const identityKey = typeof q.identityKey === 'string' ? q.identityKey : null;
+            console.log('[BTMSLookupService] lookup: formula=history (stub)', JSON.stringify({
+                identityKey,
+                note: 'BTMSStorage currently only indexes UTXO-level info. ' +
+                    'To implement per-identity history (sends/incoming/internalize/refunds), ' +
+                    'extend BTMSStorage to store identityKey + eventKind and query those rows here.'
+            }, null, 2));
+            // IMPORTANT:
+            // At present this overlay only knows about txid/outputIndex/beef/lockingScript.
+            // There is no identityKey or eventKind indexed here yet, so we **must not**
+            // fabricate results. Returning [] keeps behaviour honest until storage is extended.
+            return [];
+        }
         if (formula === 'findAll') {
             console.log('[BTMSLookupService] lookup: formula=findAll');
             const docs = await this.storage.findAll();
