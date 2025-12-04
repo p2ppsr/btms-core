@@ -1,0 +1,757 @@
+/**
+ * BTMS Marketplace Functions (DISABLED)
+ *
+ * This file contains commented-out marketplace functionality that was part of
+ * the original BTMS implementation. It is preserved here for reference and
+ * potential future re-implementation.
+ *
+ * Features included:
+ * - Ownership proof generation and verification
+ * - Asset listing for sale
+ * - Offer creation, acceptance, and rejection
+ * - Trade execution
+ *
+ * To re-enable, uncomment the code and update imports as needed.
+ */
+
+/*
+// ============================================================================
+// OWNERSHIP PROOF
+// ============================================================================
+
+async proveOwnership(assetId: string, amount: number, verifier: string): Promise<OwnershipProof> {
+  // Get a list of tokens
+  const myTokens = await this.getTokens(assetId, true)
+  let amountProven = 0
+  const provenTokens: {
+    output: GetTransactionOutputResult;
+    linkage: SpecificKeyLinkageResult;
+  }[] = []
+  const myIdentityKey = await getPublicKey({ identityKey: true })
+  // Go through the list
+  for (const token of myTokens) {
+    // Obtain key linkage for each token
+    const parsedInstructions = JSON.parse(token.customInstructions as string)
+    const linkage = await revealKeyLinkage({ // TODO: signing strategy
+      mode: 'specific',
+      counterparty: this.getCounterpartyFromInstructions(parsedInstructions),
+      protocolID: this.protocolID,
+      keyID: this.getKeyIDFromInstructions(parsedInstructions),
+      verifier,
+      description: 'Prove token ownership'
+    })
+    provenTokens.push({
+      output: token,
+      linkage: linkage as SpecificKeyLinkageResult
+    })
+    // Increment the amount counter each time
+    const t = pushdrop.decode({
+      script: token.outputScript,
+      fieldFormat: 'utf8'
+    })
+    amountProven += Number(t.fields[1])
+    // Break if the amount counter goes above the amount to prove
+    if (amountProven > amount) break
+  }
+  // After the loop check the counter
+  // Error if we have not proven the full amount
+  if (amountProven < amount) {
+    throw new Error('User does not have amount of asset requested for ownership proof.')
+  }
+  // Return the proof
+  return {
+    prover: myIdentityKey,
+    verifier,
+    tokens: provenTokens,
+    amount,
+    assetId
+  }
+}
+
+async verifyOwnership(proof: OwnershipProof, useAnyoneKey = false): Promise<boolean> {
+  // Keep count of amount proven
+  let amountProven = 0
+  // Go through all tokens
+  for (const token of proof.tokens) {
+    // Increment the amount counter each time
+    const t = pushdrop.decode({
+      script: token.output.outputScript,
+      fieldFormat: 'utf8'
+    })
+    amountProven += Number(t.fields[1])
+    // Ensure token linkage is verified for prover
+    const valid = await this.verifyLinkageForProver(token.linkage, t.lockingPublicKey, useAnyoneKey)
+    if (!valid) {
+      throw new Error('Invalid key linkage for token prover.')
+    }
+    // Ensure the proof belongs to the prover
+    if (token.linkage.prover !== proof.prover) {
+      throw new Error('Prover tried to prove tokens that were not theirs.')
+    }
+    // Ensure token is on overlay
+    const resultFromOverlay = await this.findFromTokenOverlay({
+      txid: token.output.txid,
+      vout: token.output.vout
+    })
+    if (resultFromOverlay.length < 1) {
+      throw new Error('Claimed token is not on the overlay.')
+    }
+  }
+  // Check amount in proof against total
+  // Error if amounts mismatch
+  if (amountProven !== proof.amount) {
+    throw new Error('Amount of tokens in proof not as claimed.')
+  }
+  // Return true as proof is valid
+  return true
+}
+
+// ============================================================================
+// ASSET ID VALIDATION
+// ============================================================================
+
+validateAssetId(assetId: string): boolean {
+  if (typeof assetId !== 'string') {
+    return false
+  }
+  const [first, second, third] = assetId.split('.')
+  if (typeof first !== 'string' || typeof second !== 'string') {
+    return false
+  }
+  if (typeof third !== 'undefined') {
+    return false
+  }
+  if (!/^[0-9a-fA-F]{64}$/.test(first)) {
+    return false
+  }
+  const secondNum = Number(second)
+  if (!Number.isInteger(secondNum)) {
+    return false
+  }
+  if (secondNum < 0) {
+    return false
+  }
+  return true
+}
+
+// ============================================================================
+// MARKETPLACE LISTING
+// ============================================================================
+
+async listAssetForSale(
+  assetId: string,
+  amount: number,
+  desiredAssets: Record<string, number>,
+  description?: string
+): Promise<SubmitResult> {
+  // Validate desired assets
+  for (const key of Object.keys(desiredAssets)) {
+    const validAssetId = this.validateAssetId(key)
+    if (!validAssetId) {
+      const e = new Error('Asset ID in desired assets structure invalid')
+      console.error('Rejecting output for having an invalid asset ID in desired assets')
+      throw e
+    }
+  }
+  for (const val of Object.values(desiredAssets)) {
+    if (typeof val !== 'number' || val < -1 || !Number.isInteger(val)) {
+      const e = new Error('Amount in desired assets structure invalid')
+      console.error('Rejecting output for having an invalid amount in desired assets')
+      throw e
+    }
+  }
+
+  // Create a proof
+  const anyonePub = new PrivateKey(ANYONE, 'hex').toPublicKey().toString()
+  const proof = await this.proveOwnership(assetId, amount, anyonePub)
+
+  const identityKey = await getPublicKey({ identityKey: true })
+
+  const token = await pushdrop.create({
+    fields: [
+      Buffer.from(JSON.stringify(proof), 'utf8'),
+      Buffer.from(identityKey, 'hex'),
+      Buffer.from(JSON.stringify(desiredAssets), 'utf8'),
+      Buffer.from(description || '', 'utf8')
+    ],
+    protocolID: 'marketplace',
+    keyID: '1',
+    counterparty: 'anyone',
+    ownedByCreator: true
+  })
+
+  const action = await createAction({
+    description: 'List assets on the marketplace',
+    outputs: [{
+      satoshis: this.satoshis,
+      script: token
+    }]
+  })
+
+  const parsedTransaction = new bsv.Transaction(action.rawTx)
+  const output = parsedTransaction.outputs[0]
+
+  const parsedToken = pushdrop.decode({
+    script: output.script.toHex(),
+    fieldFormat: 'buffer'
+  })
+
+  const expected = getPaymentAddress({
+    senderPrivateKey: '0000000000000000000000000000000000000000000000000000000000000001',
+    recipientPublicKey: parsedToken.fields[1].toString('hex'),
+    invoiceNumber: '2-marketplace-1',
+    returnType: 'publicKey'
+  })
+
+  if (expected !== parsedToken.lockingPublicKey) {
+    const e = new Error('Unable to verify identity public key links to signing key')
+    console.error('Rejecting output for ownership proof mismatch')
+    throw e
+  }
+
+  return await this.submitToMarketplaceOverlay(action)
+}
+
+// ============================================================================
+// MARKETPLACE DISCOVERY
+// ============================================================================
+
+async findAllAssetsForSale(findMine = false): Promise<MarketplaceEntry[]> {
+  const findParams: { seller?: string, findAll?: boolean } = {}
+  if (findMine) {
+    const myIdentity = await getPublicKey({ identityKey: true })
+    findParams.seller = myIdentity
+  } else {
+    findParams.findAll = true
+  }
+  const assets = await this.findFromMarketplaceOverlay(findParams)
+  const results: MarketplaceEntry[] = []
+  for (const asset of assets) {
+    const decoded = pushdrop.decode({
+      script: asset.outputScript,
+      returnType: 'buffer'
+    })
+    const parsedProof: OwnershipProof = JSON.parse(decoded.fields[0].toString('utf8'))
+    const parsedDesiredAssets = JSON.parse(decoded.fields[1].toString('utf8'))
+    const decodedAsset = pushdrop.redeem({
+      script: parsedProof.tokens[0].output.outputScript,
+      returnType: 'utf8'
+    })
+    results.push({
+      seller: parsedProof.prover,
+      amount: parsedProof.amount,
+      description: decoded.fields[2] ? decoded.fields[2].toString('utf8') : '',
+      desiredAssets: parsedDesiredAssets,
+      ownershipProof: parsedProof,
+      assetId: parsedProof.assetId,
+      metadata: decodedAsset.fields[2].toString('utf8')
+    })
+  }
+  return results
+}
+
+// ============================================================================
+// OFFER MANAGEMENT
+// ============================================================================
+
+async makeOffer(entry: MarketplaceEntry, assetId: string, amount: number): Promise<void> {
+  // Verify the assets are still available
+  const verified = await this.verifyOwnership(entry.ownershipProof, true)
+  if (!verified) {
+    throw new Error('Item is no longer for sale.')
+  }
+
+  // Compose a proof of our assets for the seller
+  const buyerProof = await this.proveOwnership(assetId, amount, entry.seller)
+
+  // Prepare a funding UTXO for the trade offer
+  const fundingKeyID = this.getRandomKeyID()
+  const fundingTemplate = new BTMSFundingToken()
+  const fundingScript = await fundingTemplate.lock(this.protocolID, fundingKeyID, entry.seller)
+  const buyerOfferCustomInstructions: BuyerOfferCustomInstructions = {
+    buyerProof,
+    buyerOfferedAssetId: assetId,
+    buyerOfferedAmount: amount,
+    sellerEntry: entry,
+    fundingKeyID
+  }
+  const fundingAction = await createAction({
+    outputs: [{
+      satoshis: 1000,
+      script: fundingScript.toHex(),
+      description: 'Fund a trade offer',
+      basket: `${this.basket} trades`,
+      customInstructions: JSON.stringify(buyerOfferCustomInstructions)
+    }],
+    description: 'Offer a trade'
+  })
+
+  // Extract buyer's asset metadata
+  const decodedBuyerAsset = pushdrop.redeem({
+    script: buyerProof.tokens[0].output.outputScript,
+    returnType: 'utf8'
+  })
+  const metadata = decodedBuyerAsset.fields[2].toString('utf8')
+
+  // Create scripts for both the buyer's and seller's new ownership
+  const desiredBuyerKeyID = this.getRandomKeyID()
+  const template = new BTMSToken()
+  const desiredBuyerScript = (await template.lock(
+    this.protocolID, desiredBuyerKeyID, entry.seller, assetId, entry.amount, metadata, true
+  )).toHex()
+  const desiredSellerKeyID = this.getRandomKeyID()
+  const desiredSellerScript = (await template.lock(
+    this.protocolID, desiredSellerKeyID, entry.seller, assetId, amount, metadata
+  )).toHex()
+
+  // Create a conditionally signed transaction
+  const tx = new Transaction()
+
+  tx.addOutput({
+    lockingScript: LockingScript.fromHex(desiredBuyerScript),
+    satoshis: this.satoshis
+  })
+  tx.addOutput({
+    lockingScript: LockingScript.fromHex(desiredSellerScript),
+    satoshis: this.satoshis
+  })
+
+  // Add seller inputs
+  for (let i = 0; i < entry.ownershipProof.tokens.length; i++) {
+    tx.addInput({
+      sourceTransaction: Transaction.fromHex(entry.ownershipProof.tokens[i].output.envelope?.rawTx as string),
+      sourceOutputIndex: entry.ownershipProof.tokens[i].output.vout,
+      sequence: 0xffffffff
+    })
+  }
+
+  // Add funding input
+  tx.addInput({
+    sourceTransaction: Transaction.fromHex(fundingAction.rawTx as string),
+    sourceOutputIndex: 0,
+    sequence: 0xffffffff,
+    unlockingScriptTemplate: fundingTemplate.unlock(this.protocolID, fundingKeyID, entry.seller)
+  })
+
+  // Add buyer inputs
+  for (let i = 0; i < buyerProof.tokens.length; i++) {
+    const token = buyerProof.tokens[i]
+    const parsedInstructions = JSON.parse(token.output.customInstructions as string)
+    const keyID = this.getKeyIDFromInstructions(parsedInstructions)
+    const counterparty = this.getCounterpartyFromInstructions(parsedInstructions)
+    tx.addInput({
+      sourceTransaction: Transaction.fromHex(token.output.envelope?.rawTx as string),
+      sourceOutputIndex: token.output.vout,
+      sequence: 0xffffffff,
+      unlockingScriptTemplate: template.unlock(this.protocolID, keyID, counterparty)
+    })
+  }
+
+  await tx.sign()
+
+  const partialTX = tx.toHex()
+
+  const offer: MarketplaceOffer = {
+    buyerPartialTX: partialTX,
+    buyerProof,
+    buyerOffersAssetId: assetId,
+    buyerOffersAmount: amount,
+    sellerEntry: entry,
+    buyerFundingEnvelope: fundingAction,
+    fundingKeyID,
+    desiredSellerKeyID,
+    desiredSellerChangeKeyID: undefined,
+    desiredBuyerKeyID,
+    desiredBuyerChangeKeyID: undefined
+  }
+
+  await this.tokenator.sendMessage({
+    recipient: entry.seller,
+    messageBox: this.marketplaceMessageBox,
+    body: JSON.stringify(offer)
+  })
+}
+
+async listOutgoingOffers(): Promise<MarketplaceOffer[]> {
+  const basketEntries = await getTransactionOutputs({
+    basket: `${this.basket} trades`,
+    spendable: true,
+    includeEnvelope: true,
+    includeCustomInstructions: true
+  })
+  const rejectionMessages = await this.tokenator.listMessages({
+    messageBox: `${this.marketplaceMessageBox}_rejection`
+  })
+  const results: MarketplaceOffer[] = []
+  for (let i = 0; i < basketEntries.length; i++) {
+    const parsedInstructions: BuyerOfferCustomInstructions = JSON.parse(basketEntries[i].customInstructions as string)
+    const rejected = rejectionMessages.some(
+      x => x.sender === parsedInstructions.sellerEntry.seller && x.body === basketEntries[i].txid
+    )
+    results.push({
+      buyerFundingEnvelope: verifyTruthy(basketEntries[i].envelope),
+      buyerOffersAssetId: parsedInstructions.buyerOfferedAssetId,
+      buyerOffersAmount: parsedInstructions.buyerOfferedAmount,
+      buyerProof: parsedInstructions.buyerProof,
+      buyerPartialTX: '',
+      sellerEntry: parsedInstructions.sellerEntry,
+      fundingKeyID: parsedInstructions.fundingKeyID,
+      rejected
+    })
+  }
+  return results
+}
+
+async cancelOutgoingOffer(offer: MarketplaceOffer): Promise<void> {
+  const fundingTX = Transaction.fromHex(offer.buyerFundingEnvelope.rawTx as string)
+  const fundingTXID = offer.buyerFundingEnvelope.txid || fundingTX.id('hex') as string
+  const signatureScope = TransactionSignature.SIGHASH_FORKID | TransactionSignature.SIGHASH_NONE | TransactionSignature.SIGHASH_ANYONECANPAY
+  const preimage = TransactionSignature.format({
+    sourceTXID: fundingTXID,
+    sourceOutputIndex: 0,
+    sourceSatoshis: fundingTX.outputs[0].satoshis as number,
+    transactionVersion: 1,
+    otherInputs: [],
+    inputIndex: 0,
+    outputs: [],
+    inputSequence: 0xffffffff,
+    subscript: fundingTX.outputs[0].lockingScript,
+    lockTime: 0,
+    scope: signatureScope
+  })
+  const preimageHash = Hash.sha256(preimage)
+  const SDKSignature = await createSignature({
+    data: Uint8Array.from(preimageHash),
+    protocolID: this.protocolID,
+    keyID: offer.fundingKeyID,
+    counterparty: offer.sellerEntry.seller
+  })
+  const rawSignature = Signature.fromDER([...SDKSignature])
+  const sig = new TransactionSignature(
+    rawSignature.r,
+    rawSignature.s,
+    signatureScope
+  )
+  const sigForScript = sig.toChecksigFormat()
+  const publicKeyString = await getPublicKey({
+    protocolID: this.protocolID,
+    keyID: offer.fundingKeyID,
+    counterparty: offer.sellerEntry.seller,
+    forSelf: true
+  })
+  const unlockingScript = new UnlockingScript([
+    { op: sigForScript.length, data: sigForScript },
+    { op: publicKeyString.length / 2, data: Utils.toArray(publicKeyString, 'hex') }
+  ]).toHex()
+
+  await createAction({
+    description: 'cancel an offer',
+    inputs: {
+      [fundingTXID]: {
+        ...verifyTruthy(offer.buyerFundingEnvelope),
+        rawTx: offer.buyerFundingEnvelope.rawTx as string,
+        outputsToRedeem: [{
+          index: 0,
+          unlockingScript
+        }]
+      }
+    }
+  })
+}
+
+async listIncomingOffers(forEntry?: MarketplaceEntry): Promise<MarketplaceOffer[]> {
+  const offerMessages = await this.tokenator.listMessages({
+    messageBox: this.marketplaceMessageBox
+  })
+  const results: MarketplaceOffer[] = []
+  let forEntryString: string | undefined
+  if (typeof forEntry !== 'undefined') {
+    forEntryString = stringify(forEntry)
+  }
+  const myEntries = await this.findAllAssetsForSale(true)
+  const myEntriesStrings: string[] = myEntries.map(x => stringify(x))
+  for (let i = 0; i < offerMessages.length; i++) {
+    try {
+      const parsedOffer: MarketplaceOffer = JSON.parse(offerMessages[i].body)
+      const sellerEntryString = stringify(parsedOffer.sellerEntry)
+      if (!myEntriesStrings.some(x => x === sellerEntryString)) {
+        continue
+      }
+      if (forEntryString && sellerEntryString !== forEntryString) {
+        continue
+      }
+      const verified = await this.verifyOwnership(parsedOffer.buyerProof)
+      if (!verified) {
+        continue
+      }
+      if (parsedOffer.buyerProof.assetId !== parsedOffer.buyerOffersAssetId ||
+          parsedOffer.buyerProof.amount !== parsedOffer.buyerOffersAmount) {
+        continue
+      }
+      const isAsDesiredBySeller = parsedOffer.buyerOffersAmount >= parsedOffer.sellerEntry.desiredAssets[parsedOffer.buyerOffersAssetId]
+      parsedOffer.isAsDesiredBySeller = isAsDesiredBySeller
+      results.push(parsedOffer)
+    } catch (e) {
+      continue
+    }
+  }
+  return results
+}
+
+async acceptOffer(offer: MarketplaceOffer): Promise<void> {
+  const verified = await this.verifyOwnership(offer.buyerProof)
+  if (!verified) {
+    throw new Error('The offer has been rescinded by the buyer.')
+  }
+  const tx = Transaction.fromHex(offer.buyerPartialTX)
+  const template = new BTMSToken()
+  for (let i = 0; i < offer.sellerEntry.ownershipProof.tokens.length; i++) {
+    const token = offer.sellerEntry.ownershipProof.tokens[i]
+    const inputIndex = tx.inputs.findIndex(
+      x => x.sourceTXID === token.output.txid && x.sourceOutputIndex === token.output.vout
+    )
+    if (inputIndex === -1) {
+      throw new Error('Buyer did not include a required seller output')
+    }
+    tx.inputs[inputIndex].unlockingScriptTemplate = template.unlock(
+      this.protocolID,
+      this.getKeyIDFromInstructions(token.output.customInstructions),
+      this.getCounterpartyFromInstructions(token.output.customInstructions)
+    )
+  }
+  await tx.sign()
+  const finalTX = tx.toHex()
+
+  // Assemble inputs and SPV envelope
+  const inputs: Record<string, EnvelopeApi> = {}
+  const fundingTXID =
+    (typeof offer.buyerFundingEnvelope.txid === 'string' && offer.buyerFundingEnvelope.txid !== '')
+      ? offer.buyerFundingEnvelope.txid
+      : Transaction.fromHex(offer.buyerFundingEnvelope.rawTx as string).id('hex')
+  inputs[fundingTXID] = {
+    ...offer.buyerFundingEnvelope,
+    rawTx: offer.buyerFundingEnvelope.rawTx as string
+  }
+  for (let i = 0; i < offer.sellerEntry.ownershipProof.tokens.length; i++) {
+    const token = offer.sellerEntry.ownershipProof.tokens[i]
+    if (typeof inputs[token.output.txid] === 'undefined') {
+      inputs[token.output.txid] = token.output.envelope as EnvelopeApi
+    }
+  }
+  for (let i = 0; i < offer.buyerProof.tokens.length; i++) {
+    const token = offer.buyerProof.tokens[i]
+    if (typeof inputs[token.output.txid] === 'undefined') {
+      inputs[token.output.txid] = token.output.envelope as EnvelopeApi
+    }
+  }
+  const action: CreateActionResult = {
+    inputs,
+    rawTx: finalTX,
+    mapiResponses: [],
+    txid: tx.id('hex')
+  }
+
+  await this.submitToTokenOverlay(action)
+
+  await submitDirectTransaction({
+    senderIdentityKey: offer.buyerProof.prover,
+    note: `Receive ${offer.buyerOffersAmount} ${offer.buyerProof.assetId} from trade`,
+    amount: this.satoshis,
+    labels: [offer.buyerProof.assetId.replace('.', ' ')],
+    transaction: {
+      ...action,
+      rawTx: action.rawTx as string,
+      outputs: [{
+        vout: 1,
+        basket: this.basket,
+        satoshis: this.satoshis,
+        tags: ['owner self'],
+        customInstructions: JSON.stringify({
+          sender: offer.buyerProof.prover,
+          keyID: offer.desiredSellerKeyID || '1'
+        })
+      }]
+    }
+  })
+
+  await this.tokenator.sendMessage({
+    messageBox: `${this.marketplaceMessageBox}_acceptance`,
+    recipient: offer.buyerProof.prover,
+    body: JSON.stringify({ offer, action })
+  })
+}
+
+async acknowledgeNewlyAcquiredMarketplaceAssets(): Promise<void> {
+  const newAssets = await this.tokenator.listMessages({
+    messageBox: `${this.marketplaceMessageBox}_acceptance`
+  })
+  for (let i = 0; i < newAssets.length; i++) {
+    try {
+      const parsedAsset: { action: CreateActionResult, offer: MarketplaceOffer } = JSON.parse(newAssets[i].body)
+      await submitDirectTransaction({
+        senderIdentityKey: newAssets[i].sender,
+        note: `Receive ${parsedAsset.offer.sellerEntry.amount} ${parsedAsset.offer.sellerEntry.assetId} from trade`,
+        amount: this.satoshis,
+        labels: [parsedAsset.offer.sellerEntry.assetId.replace('.', ' ')],
+        transaction: {
+          ...parsedAsset.action,
+          rawTx: parsedAsset.action.rawTx as string,
+          outputs: [{
+            vout: 0,
+            basket: this.basket,
+            satoshis: this.satoshis,
+            tags: ['owner self'],
+            customInstructions: JSON.stringify({
+              sender: parsedAsset.offer.sellerEntry.seller,
+              keyID: parsedAsset.offer.desiredBuyerKeyID || '1'
+            })
+          }]
+        }
+      })
+    } catch (e) {
+      continue
+    } finally {
+      await this.tokenator.acknowledgeMessages({
+        messageIds: [newAssets[i].messageId]
+      })
+    }
+  }
+}
+
+async rejectOffer(offer: MarketplaceOffer): Promise<void> {
+  await this.tokenator.acknowledgeMessages({
+    messageIds: [offer.messageId as string]
+  })
+  const fundingTXID = offer.buyerFundingEnvelope.txid
+    ? (offer.buyerFundingEnvelope.txid || Transaction.fromHex(offer.buyerFundingEnvelope.rawTx as string).id('hex') as string)
+    : ''
+  await this.tokenator.sendMessage({
+    messageBox: `${this.marketplaceMessageBox}_reject`,
+    recipient: offer.buyerProof.prover,
+    body: fundingTXID
+  })
+}
+
+async acknowledgeRejection(offer: MarketplaceOffer): Promise<void> {
+  if (offer.rejected !== true) {
+    throw new Error('This offer was never rejected.')
+  }
+  await this.tokenator.acknowledgeMessages({
+    messageIds: [offer.messageId as string]
+  })
+  await this.cancelOutgoingOffer(offer)
+}
+
+// ============================================================================
+// KEY LINKAGE VERIFICATION
+// ============================================================================
+
+private async verifyLinkageForProver(
+  linkage: SpecificKeyLinkageResult,
+  expectedKey: string,
+  useAnyoneKey = false
+): Promise<boolean> {
+  let decryptedLinkage: Uint8Array
+  if (this.privateKey || useAnyoneKey) {
+    const derivedKey = getPaymentPrivateKey({
+      recipientPrivateKey: useAnyoneKey ? ANYONE : this.privateKey,
+      senderPublicKey: linkage.prover,
+      invoiceNumber: `${linkage.protocolID[0]}-${linkage.protocolID[1]}-${(linkage as unknown as { keyID: string }).keyID}`,
+      returnType: 'hex'
+    })
+    const derivedCryptoKey = await crypto.subtle.importKey(
+      'raw',
+      Uint8Array.from(Buffer.from(derivedKey, 'hex')),
+      { name: 'AES-GCM' },
+      false,
+      ['decrypt']
+    )
+    decryptedLinkage = CWIDecrypt(linkage.encryptedLinkage, derivedCryptoKey, 'string')
+  } else {
+    decryptedLinkage = await SDKDecrypt({
+      ciphertext: linkage.encryptedLinkage,
+      counterparty: linkage.prover,
+      protocolID: [2, `specific linkage revelation ${linkage.protocolID[0]} ${linkage.protocolID[1]}`],
+      keyID: (linkage as unknown as { keyID: string }).keyID,
+      returnType: 'Uint8Array'
+    }) as Uint8Array
+  }
+  const curve = new Curve()
+  const linkagePoint = curve.g.mul(
+    new BigNumber([...new Uint8Array(decryptedLinkage as Uint8Array)])
+  )
+  const identityKey = PublicKey.fromString(linkage.prover)
+  const actualDerivedPoint = identityKey.add(linkagePoint)
+  const actualDerivedKey = new PublicKey(actualDerivedPoint).toString()
+  return expectedKey === actualDerivedKey
+}
+
+// ============================================================================
+// OVERLAY QUERIES
+// ============================================================================
+
+private async findFromTokenOverlay(token: { txid: string, vout: number }): Promise<OverlaySearchResult[]> {
+  const result = await this.authrite.request(`${this.confederacyHost}/lookup`, {
+    method: 'post',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      provider: 'tokens',
+      query: { txid: token.txid, vout: token.vout }
+    })
+  })
+  return await result.json()
+}
+
+private async findFromMarketplaceOverlay(token: {
+  txid?: string,
+  vout?: number,
+  findAll?: boolean,
+  assetId?: string,
+  seller?: string
+}): Promise<OverlaySearchResult[]> {
+  const result = await this.authrite.request(`${this.confederacyHost}/lookup`, {
+    method: 'post',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ provider: 'marketplace', query: token })
+  })
+  return await result.json()
+}
+
+private async submitToTokenOverlay(tx, topics = [this.tokenTopic]): Promise<SubmitResult> {
+  const result = await this.authrite.request(`${this.confederacyHost}/submit`, {
+    method: 'post',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...tx, topics })
+  })
+  return await result.json()
+}
+
+private async submitToMarketplaceOverlay(tx, topics = [this.marketplaceTopic]): Promise<SubmitResult> {
+  const result = await this.authrite.request(`${this.confederacyHost}/submit`, {
+    method: 'post',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...tx, topics })
+  })
+  return await result.json()
+}
+
+// ============================================================================
+// INSTRUCTION HELPERS
+// ============================================================================
+
+private getCounterpartyFromInstructions(i): string {
+  if (!i) return 'self'
+  while (typeof i === 'string') {
+    i = JSON.parse(i)
+  }
+  return i.sender
+}
+
+private getKeyIDFromInstructions(i): string {
+  if (!i) return '1'
+  while (typeof i === 'string') {
+    i = JSON.parse(i)
+  }
+  return i.keyID || '1'
+}
+*/

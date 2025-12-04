@@ -11,40 +11,40 @@ import { btms, walletClient } from './btms/index' // ✅ correct import
 const App: React.FC = () => {
   const lastIdentityRef = useRef<string | null>(null)
 
-  useEffect(() => {
-    let timer: any
+  // useEffect(() => {
+  //   let timer: any
 
-    async function checkIdentity() {
-      try {
-        const { publicKey } = await walletClient.getPublicKey({
-          identityKey: true
-        })
+  //   async function checkIdentity() {
+  //     try {
+  //       const { publicKey } = await walletClient.getPublicKey({
+  //         identityKey: true
+  //       })
 
-        // First load OR identity changed
-        if (lastIdentityRef.current !== publicKey) {
-          console.log(`IDENTITY CHANGE DETECTED`, {
-            old: lastIdentityRef.current,
-            new: publicKey
-          })
+  //       // First load OR identity changed
+  //       if (lastIdentityRef.current !== publicKey) {
+  //         console.log(`IDENTITY CHANGE DETECTED`, {
+  //           old: lastIdentityRef.current,
+  //           new: publicKey
+  //         })
 
-          lastIdentityRef.current = publicKey
+  //         lastIdentityRef.current = publicKey
 
-          // BTMS refreshes assets + fires onAssetsChanged
-          await btms.switchIdentityToActiveProfile()
-        }
-      } catch (err) {
-        console.warn('Identity poll failed:', err)
-      }
-    }
+  //         // BTMS refreshes assets + fires onAssetsChanged
+  //         await btms.switchIdentityToActiveProfile()
+  //       }
+  //     } catch (err) {
+  //       console.warn('Identity poll failed:', err)
+  //     }
+  //   }
 
-    // Run at startup
-    checkIdentity()
+  //   // Run at startup
+  //   checkIdentity()
 
-    // Run every 5s
-    timer = setInterval(checkIdentity, 5000)
+  //   // Run every 5s
+  //   timer = setInterval(checkIdentity, 5000)
 
-    return () => clearInterval(timer)
-  }, [])
+  //   return () => clearInterval(timer)
+  // }, [])
 
   return (
     <Switch>
