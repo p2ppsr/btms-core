@@ -27,8 +27,8 @@ interface HomeProps {
   }
 }
 
-const HOME_DEBUG = true
-const HOME_SOURCE_TAG = 'frontend/src/btms/index.ts@debug-hmr-39'
+const HOME_DEBUG = false
+const HOME_SOURCE_TAG = 'frontend/src/pages/Home/index.tsx'
 
 function homeDebug(label: string, ...rest: any[]) {
   if (!HOME_DEBUG) return
@@ -102,7 +102,7 @@ const Home: React.FC<HomeProps> = ({ history }) => {
   }
 
   useEffect(() => {
-    ;(async () => {
+    ; (async () => {
       homeDebug('mount: loading')
       try {
         await refreshAssets()
@@ -244,9 +244,9 @@ const Home: React.FC<HomeProps> = ({ history }) => {
                     const incomingCount = incomingByAsset[token.assetId] || 0
                     const incomingAmount = incomingAmountsByAsset[token.assetId] || 0
 
-                    const walletEntry = walletTokens.find(w => w.assetId === token.assetId)
-                    const hasWalletBalance = !!walletEntry
-                    const walletBalance = walletEntry ? walletEntry.balance : 0
+                    // Use token.balance directly - it's already set from walletTokens in mergedTokens
+                    const hasWalletBalance = token.balance > 0
+                    const walletBalance = token.balance
 
                     const incomingOnly = !hasWalletBalance && incomingCount > 0
                     const hasPendingIncoming = !!token.hasPendingIncoming || incomingCount > 0

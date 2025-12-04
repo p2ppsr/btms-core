@@ -33,10 +33,13 @@ import {
   CreateActionOutput,
   ListOutputsArgs,
   ListOutputsResult,
+  ListActionsArgs,
+  ListActionsResult,
   WalletInterface,
   SignActionArgs,
   InternalizeActionArgs,
-  PositiveIntegerOrZero
+  PositiveIntegerOrZero,
+  LookupResolver
 } from '@bsv/sdk'
 // use the shared logger (so logging.config.ts can turn this on/off)
 import { logWithTimestamp } from '../utils/logging'
@@ -46,11 +49,11 @@ import { MessageBoxClient } from '@bsv/message-box-client'
  * Simple wrapper so all BTMS debug lines have a consistent prefix.
  */
 /**
- * Global debug switch. Leave on while we’re chasing the repeated calls.
+ * Global debug switch.
  */
-const BTMS_DEBUG = true
+const BTMS_DEBUG = false
 
-const BTMS_SOURCE_TAG = 'frontend/src/btms/index.ts@debug-hmr-39'
+const BTMS_SOURCE_TAG = 'frontend/src/btms/index.ts'
 
 // For testing
 // Name of the permission scheme / protocol (BRC-98/99)
@@ -65,11 +68,8 @@ const PROTOCOL_ID: WalletProtocol = [0, PROTOCOL]
 // Basket prefix = protocol / permission scheme name
 const BASKET_PREFIX = PROTOCOL
 
-// 1-sat discovery UTXOs live under this basket namespace
-const DISCOVERY_BASKET = PROTOCOL
-
-// Initial basket when BTMS starts (same for now)
-const INIT_BASKET = DISCOVERY_BASKET
+// Initial basket when BTMS starts
+const INIT_BASKET = PROTOCOL
 
 // Version prefix for asset namespace (e.g., v1, v2, v3)
 const ASSET_ID_VERSION_PREFIX = 'v'
@@ -81,19 +81,9 @@ const TOKEN_BASKET_PREFIX = `${PROTOCOL} ${ASSET_ID_VERSION}`
 // btmstoken v1 assetid=
 const ASSET_PROTOCOL = `${TOKEN_BASKET_PREFIX} ${ASSET_ID_TERM}=`
 
-console.log('BTMS-HMR-TEST: index.ts loaded', {
-  ts: new Date().toISOString(),
-  PROTOCOL_ID,
-  PERMISSION_PROTOCOL,
-  DISCOVERY_BASKET,
-  ASSET_ID_VERSION
-})
-
 function btmsDebug(label: string, ...rest: any[]) {
   if (!BTMS_DEBUG) return
-  //if (label.startsWith('listAssets')) {
   logWithTimestamp(`[BTMS:${BTMS_SOURCE_TAG}] ${label}`, ...rest)
-  //}
 }
 
 /**
@@ -1128,7 +1118,12 @@ export class BTMS {
         isValid: true
       })
 
-      if (tokenName !== assetId) continue
+
+      // Case-insensitive match since basket names may differ in case from token script assetId
+      if (tokenName.toLowerCase() !== assetId.toLowerCase()) {
+        btmsDebug(`${callId}: SKIP token mismatch`, { tokenName, assetId })
+        continue
+      }
 
       // ---------------------------------------------------------
       // 3) Extract amount
@@ -1231,17 +1226,10 @@ export class BTMS {
 
       const lockingScriptHex = lockScript.toHex()
 
-      // discovery output
-      const discoveryTemplate = new BTMSFundingToken(this.walletClient)
-      const discoveryLockScript = await discoveryTemplate.lock(this.protocolID, this.protocolKeyID, 'self')
-      const discoveryLockingScriptHex = discoveryLockScript.toHex()
-
-      const discoveryLabel: LabelStringUnder300Bytes =
-        `${PROTOCOL} ${ASSET_ID_VERSION} ${ASSET_ID_TERM}=${assetId}` as LabelStringUnder300Bytes
-
+      // Use 'btms' label for discovery via listActions (no separate discovery output needed)
       const args: CreateActionArgs = {
         description: `Issue ${amount} ${name}`,
-        labels: [discoveryLabel],
+        labels: ['btms' as LabelStringUnder300Bytes],
 
         outputs: [
           {
@@ -1257,13 +1245,6 @@ export class BTMS {
               assetId,
               metadata: metadataJson
             })
-          },
-          {
-            satoshis: 1,
-            lockingScript: discoveryLockingScriptHex,
-            basket: DISCOVERY_BASKET as BasketStringUnder300Bytes,
-            outputDescription: `discovery ${discoveryLabel}`,
-            tags: ['btms', 'discovery'] as OutputTagStringUnder300Bytes[]
           }
         ],
 
@@ -2210,7 +2191,7 @@ export class BTMS {
         throw new Error(`BTMS send: invalid amount: "${amtStr}".`)
       }
 
-      if (tokenName !== assetId) {
+      if (tokenName.toLowerCase() !== assetId.toLowerCase()) {
         throw new Error(`BTMS send: token mismatch. Expected "${assetId}", got "${tokenName}".`)
       }
 
@@ -2368,35 +2349,6 @@ export class BTMS {
 
       outputs.push(recipientOutput)
 
-      /* -------------------------------------------------------- */
-      /* REQUIRED: Discovery Output (IDENTICAL to issue())        */
-      /* -------------------------------------------------------- */
-
-      const discoveryTemplate = new BTMSFundingToken(walletClient)
-
-      const discoveryLockScript = await discoveryTemplate.lock(this.protocolID, this.protocolKeyID, 'self')
-
-      const discoveryLockingScriptHex = discoveryLockScript.toHex() as HexString
-
-      // Strong-typed discovery label
-      const discoveryLabel: LabelStringUnder300Bytes =
-        `${PROTOCOL} ${ASSET_ID_VERSION} ${ASSET_ID_TERM}=${assetId}` as LabelStringUnder300Bytes
-
-      const discoveryOutput: CreateActionOutput = {
-        satoshis: 1,
-        lockingScript: discoveryLockingScriptHex,
-        basket: DISCOVERY_BASKET as BasketStringUnder300Bytes,
-        outputDescription: `discovery ${discoveryLabel}`,
-        tags: ['btms-discovery'] as OutputTagStringUnder300Bytes[]
-      }
-
-      btmsDebug(`${callId}: DISCOVERY OUTPUT (send)`, {
-        discoveryLabel,
-        lockingScriptPreview: shortHex(discoveryLockingScriptHex, 48)
-      })
-
-      outputs.push(discoveryOutput)
-
       /* ---------------------- */
       /* Change Output          */
       /* ---------------------- */
@@ -2455,7 +2407,7 @@ export class BTMS {
 
       const createActionArgs: CreateActionArgs = {
         description: `Send ${sendAmount} ${tokenDisplayName} to ${recipient}`,
-        labels: [assetId as LabelStringUnder300Bytes],
+        labels: ['btms' as LabelStringUnder300Bytes],
         inputBEEF: loadedBeef.toBinary(),
         inputs: [
           {
@@ -2629,46 +2581,46 @@ export class BTMS {
   }
 
   /******************************************************************************************
-   * INSTRUMENTED listAssets() — FINAL CORRECT VERSION
+   * listAssets() — Uses listActions with 'btms' label for discovery (no discovery basket)
    ******************************************************************************************/
   async listAssets(includeMode: ListOutputsArgs['include'] = 'locking scripts'): Promise<Asset[]> {
     const callId = makeDebugCallId('listAssets')
-    btmsDebug(`${callId}: START (discovery + messagebox + basket scan)`, { includeMode })
+    btmsDebug(`${callId}: START (listActions + messagebox scan)`, { includeMode })
 
     const assetIds = new Set<string>()
-    let discoveryOutputs: any[] = []
 
     /***************************************************************************
-     * STEP A — Discovery basket (single authoritative scan)
+     * STEP A — Discover assets via listActions with 'btms' label
+     * Extract asset IDs from output baskets (pattern: "btmstoken v1 <assetId>")
      ***************************************************************************/
     try {
-      const d = await this.walletClient.listOutputs({
-        basket: DISCOVERY_BASKET,
-        include: 'entire transactions',
-        includeLabels: true,
-        seekPermission: true,
-        limit: 5000
+      const actionsResult: ListActionsResult = await this.walletClient.listActions({
+        labels: ['btms'],
+        includeOutputs: true,
+        limit: 10000
       })
 
-      discoveryOutputs = d.outputs ?? []
-
-      btmsDebug(`${callId}: discovery basket result`, {
-        count: discoveryOutputs.length
+      btmsDebug(`${callId}: listActions result`, {
+        totalActions: actionsResult.totalActions,
+        returnedActions: actionsResult.actions.length
       })
 
-      for (const o of discoveryOutputs) {
-        const labels = (o as any).labels ?? []
-        const label = labels.find((l: any) => l.startsWith(ASSET_PROTOCOL))
-        if (label) {
-          const id = label.substring(ASSET_PROTOCOL.length).trim()
-          if (id) {
-            assetIds.add(id)
-            btmsDebug(`${callId}: discovered assetId from label`, { id })
+      // Extract asset IDs from output baskets
+      const basketPrefix = `${this.basketPrefix} ${ASSET_ID_VERSION} `
+      for (const action of actionsResult.actions) {
+        for (const output of action.outputs ?? []) {
+          if (output.basket?.startsWith(basketPrefix)) {
+            // Parse assetId from basket name: "btmstoken v1 <assetId>"
+            const assetId = output.basket.substring(basketPrefix.length)
+            if (assetId) {
+              assetIds.add(assetId)
+              btmsDebug(`${callId}: discovered assetId from action output basket`, { assetId, basket: output.basket })
+            }
           }
         }
       }
     } catch (err) {
-      btmsDebug(`${callId}: discovery scan FAILED`, { err })
+      btmsDebug(`${callId}: listActions FAILED`, { err })
     }
 
     /***************************************************************************
@@ -2687,7 +2639,6 @@ export class BTMS {
     }
 
     const filteredIncoming: any[] = []
-    const currentIdentity = this.currentIdentity
 
     for (const msg of incoming) {
       const hex = msg.lockingScriptHex || msg.lockingScript || msg.locking_script
@@ -2706,37 +2657,7 @@ export class BTMS {
     }
 
     /***************************************************************************
-     * STEP C — Pull per-asset basket explicitly (NO PREFIX SCAN)
-     ***************************************************************************/
-    for (const id of Array.from(assetIds)) {
-      const basketName = `${this.basketPrefix} ${ASSET_ID_VERSION} ${id}` as BasketStringUnder300Bytes
-      btmsDebug(`${callId}: FETCH basket outputs`, { basketName })
-
-      try {
-        const r = await this.walletClient.listOutputs({
-          basket: basketName,
-          include: 'locking scripts',
-          includeLabels: true,
-          includeTags: true,
-          seekPermission: true,
-          limit: 5000
-        })
-
-        btmsDebug(`${callId}: basket outputs`, {
-          basketName,
-          total: r.totalOutputs
-        })
-
-        if (r.totalOutputs === 0) {
-          btmsDebug(`${callId}: WARNING — empty basket for discovered id`, { id })
-        }
-      } catch (err) {
-        btmsDebug(`${callId}: basket fetch FAILED`, { basketName, err })
-      }
-    }
-
-    /***************************************************************************
-     * STEP D — Construct Asset models
+     * STEP C — Construct Asset models
      ***************************************************************************/
     const discoveredList = [...assetIds]
     btmsDebug(`${callId}: FINAL discovered assetIds`, discoveredList)
@@ -2760,21 +2681,16 @@ export class BTMS {
     }
 
     /***************************************************************************
-     * STEP E — Compute balance
+     * STEP D — Compute balance
      ***************************************************************************/
     for (const id of discoveredList) {
-      btmsDebug(`${callId}: computing balance for`, { id })
       const bal = await this.getBalance(id)
       assets[id].balance = bal
       btmsDebug(`${callId}: balance computed`, { id, bal })
     }
 
     const finalList = Object.values(assets)
-
-    btmsDebug(`${callId}: FINAL ASSET LIST`, {
-      count: finalList.length,
-      finalList
-    })
+    btmsDebug(`${callId}: FINAL ASSET LIST`, { count: finalList.length, finalList })
 
     return finalList
   }
@@ -3093,16 +3009,62 @@ export class BTMS {
     })
 
     // ---------------------------------------------------------------------------
-    // 7) INTERNALIZE — TWO-STEP PROCESS (wallet payment → basket insertion)
+    // 7) OVERLAY VERIFICATION — Check if token exists on overlay, re-submit if missing
     // ---------------------------------------------------------------------------
+    const txid = payment.txid
+    const vout = payment.vout
 
-    // -------------------------------------------------------------
-    // CORRECT, TYPE-SAFE INTERNALIZE ACTION FOR BASKET INSERTION
-    // -------------------------------------------------------------
+    const resolver = new LookupResolver({ networkPreset: 'local' })
+
+    let isOnOverlay = false
+    try {
+      const lookupResult = await resolver.query({
+        service: 'ls_btms',
+        query: { txid, outputIndex: vout }
+      })
+
+      // Check if we got a valid output-list response with matching output
+      if (lookupResult.type === 'output-list' && lookupResult.outputs.length > 0) {
+        isOnOverlay = true
+        btmsDebug(`${callId}: token found on overlay`, { txid, vout })
+      } else {
+        btmsDebug(`${callId}: token NOT found on overlay`, { txid, vout, lookupResult })
+      }
+    } catch (err) {
+      btmsDebug(`${callId}: overlay lookup failed`, { txid, vout, err })
+      // Continue to re-submit attempt
+    }
+
+    // If not on overlay, attempt to re-broadcast
+    if (!isOnOverlay) {
+      btmsDebug(`${callId}: attempting re-broadcast to overlay`, { txid, vout })
+
+      try {
+        const broadcaster = new TopicBroadcaster(['tm_btms'], { networkPreset: 'local' })
+        const txObj = Transaction.fromBEEF(beef)
+        const broadcastResult = await broadcaster.broadcast(txObj)
+
+        if (broadcastResult.status === 'success') {
+          btmsDebug(`${callId}: re-broadcast SUCCESS`, { txid })
+          isOnOverlay = true
+        } else {
+          btmsDebug(`${callId}: re-broadcast FAILED`, { txid, result: broadcastResult })
+          // Don't throw - we'll still try to internalize and verify later
+        }
+      } catch (err) {
+        btmsDebug(`${callId}: re-broadcast ERROR`, { txid, err })
+        // Don't throw - we'll still try to internalize and verify later
+      }
+    }
+
+    // ---------------------------------------------------------------------------
+    // 8) INTERNALIZE — Insert token into wallet basket
+    // ---------------------------------------------------------------------------
     const basketName = `btmstoken v1 ${canonicalAssetId}` as BasketStringUnder300Bytes
 
     const insertArgs: InternalizeActionArgs = {
       tx: beef,
+      labels: ['btms'],
       outputs: [
         {
           outputIndex: payment.vout as PositiveIntegerOrZero,
@@ -3134,7 +3096,7 @@ export class BTMS {
     })
 
     // ---------------------------------------------------------------------------
-    // 8) TRACE — inspect wallet outputs inside this basket
+    // 9) TRACE — inspect wallet outputs inside this basket (debug only)
     // ---------------------------------------------------------------------------
     try {
       const basketName = `btmstoken v1 ${canonicalAssetId}`
@@ -3163,7 +3125,7 @@ export class BTMS {
     }
 
     // ---------------------------------------------------------------------------
-    // 9) VERIFY — listAssets() confirms UTXO accessible
+    // 10) VERIFY — listAssets() confirms UTXO accessible
     // ---------------------------------------------------------------------------
     const assets = await this.listAssets('locking scripts')
 
@@ -3186,7 +3148,7 @@ export class BTMS {
     btmsDebug(`${callId}: VERIFIED asset present in listAssets`, { match })
 
     // ---------------------------------------------------------------------------
-    // 10) ACKNOWLEDGE MESSAGE — ONLY NOW (after checks)
+    // 11) ACKNOWLEDGE MESSAGE — ONLY NOW (after all checks pass)
     // ---------------------------------------------------------------------------
     if (payment.messageId) {
       btmsDebug(`${callId}: ACKNOWLEDGING messageId`, {
@@ -3205,7 +3167,7 @@ export class BTMS {
     }
 
     // ---------------------------------------------------------------------------
-    // 11) DONE
+    // 12) DONE
     // ---------------------------------------------------------------------------
     btmsDebug(`${callId}: COMPLETE`, {
       assetId: canonicalAssetId,
