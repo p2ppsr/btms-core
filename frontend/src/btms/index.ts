@@ -718,7 +718,7 @@ export class BTMS {
       try {
         const v = await this.walletClient.getVersion()
         if (v && v.version) return
-      } catch {}
+      } catch { }
       await new Promise(r => setTimeout(r, 150))
     }
     throw new Error(`${callId}: wallet transport not ready`)
@@ -1003,7 +1003,7 @@ export class BTMS {
       }
 
       // Ensure downstream callers have a clean HEX lockingScript
-      ;(o as any).lockingScript = scriptHex
+      ; (o as any).lockingScript = scriptHex
 
       filtered.push(o)
     }
@@ -2031,7 +2031,7 @@ export class BTMS {
     assetId: string,
     recipient: string,
     sendAmount: number,
-    onPaymentSent: (payment: TokenForRecipient) => void = () => {}
+    onPaymentSent: (payment: TokenForRecipient) => void = () => { }
   ): Promise<SubmitResult> {
     const callId = makeDebugCallId('send')
     btmsDebug(`${callId}: START`, { assetId, recipient, sendAmount })
@@ -2658,7 +2658,7 @@ export class BTMS {
 
       for (const o of discoveryOutputs) {
         const labels = (o as any).labels ?? []
-        const label = labels.find(l => l.startsWith(ASSET_PROTOCOL))
+        const label = labels.find((l: any) => l.startsWith(ASSET_PROTOCOL))
         if (label) {
           const id = label.substring(ASSET_PROTOCOL.length).trim()
           if (id) {
@@ -4494,4 +4494,4 @@ if (!globalScope.__BTMS_SINGLETON__ || globalScope.__BTMS_SOURCE_TAG__ !== BTMS_
 // Export singleton
 export const btms = globalScope.__BTMS_SINGLETON__ as BTMS
 btms.initAfterConstructor()
-;(globalThis as any).btms = btms // <-- enable DevTools debugging
+  ; (globalThis as any).btms = btms // <-- enable DevTools debugging
