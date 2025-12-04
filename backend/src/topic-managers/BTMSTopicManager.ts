@@ -1,6 +1,6 @@
-import { AdmittanceInstructions, TopicManager } from "@bsv/overlay";
-import { BEEF, Byte, PositiveIntegerOrZero, Transaction } from "@bsv/sdk";
-import docs from "./BTMSTopicDocs.md";
+import { AdmittanceInstructions, TopicManager } from '@bsv/overlay'
+import { BEEF, Byte, PositiveIntegerOrZero, Transaction } from '@bsv/sdk'
+import docs from './BTMSTopicDocs.md'
 
 /**
  * BTMS Topic Manager (pushdrop-free).
@@ -20,53 +20,48 @@ export default class BTMSTopicManager implements TopicManager {
    * Decide which outputs from the submitted tx should be admitted to this topic.
    * For the original BTMS behavior, we simply admit all outputs that parse OK.
    */
-  async identifyAdmissibleOutputs(
-    beef: BEEF,
-    previousCoins: PositiveIntegerOrZero[],
-  ): Promise<AdmittanceInstructions> {
-    const outputsToAdmit: PositiveIntegerOrZero[] = [];
+  async identifyAdmissibleOutputs(beef: BEEF, previousCoins: PositiveIntegerOrZero[]): Promise<AdmittanceInstructions> {
+    const outputsToAdmit: PositiveIntegerOrZero[] = []
 
     try {
-      const tx = Transaction.fromBEEF(beef as Byte[]);
+      const tx = Transaction.fromBEEF(beef as Byte[])
 
       // Original BTMS flow did not filter by protocol.
       // To avoid fragile assumptions (and external libs), we admit all outputs.
       for (const [i] of tx.outputs.entries()) {
-        outputsToAdmit.push(i as PositiveIntegerOrZero);
+        outputsToAdmit.push(i as PositiveIntegerOrZero)
       }
 
       if (outputsToAdmit.length === 0) {
         // Stay permissive like Meter: warn but don't throw.
-        console.warn("BTMSTopicManager: no outputs admitted for this tx");
+        console.warn('BTMSTopicManager: no outputs admitted for this tx')
       }
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      const beefStr = JSON.stringify(beef, null, 2);
-      throw new Error(
-        `BTMSTopicManager: error identifying admissible outputs: ${message} beef:${beefStr}}`,
-      );
+      const message = error instanceof Error ? error.message : String(error)
+      const beefStr = JSON.stringify(beef, null, 2)
+      throw new Error(`BTMSTopicManager: error identifying admissible outputs: ${message} beef:${beefStr}}`)
     }
 
     return {
       outputsToAdmit: outputsToAdmit as number[],
-      coinsToRetain: previousCoins as number[],
-    };
+      coinsToRetain: previousCoins as number[]
+    }
   }
 
   async getDocumentation(): Promise<string> {
-    return docs;
+    return docs
   }
 
   async getMetaData(): Promise<{
-    name: string;
-    shortDescription: string;
-    iconURL?: string;
-    version?: string;
-    informationURL?: string;
+    name: string
+    shortDescription: string
+    iconURL?: string
+    version?: string
+    informationURL?: string
   }> {
     return {
-      name: "BTMS Topic Manager",
-      shortDescription: "Admits BTMS transaction outputs (no PushDrop).",
-    };
+      name: 'BTMS Topic Manager',
+      shortDescription: 'Admits BTMS transaction outputs (no PushDrop).'
+    }
   }
 }

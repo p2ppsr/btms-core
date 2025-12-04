@@ -4,3 +4,4 @@ node_modules
 /mysql
 /mongo
 /dist
+/local-data

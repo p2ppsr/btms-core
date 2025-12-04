@@ -18,7 +18,7 @@
  *  - "btms/asset/<assetId>"
  */
 export function btmsAssetBasket(assetId: string): string {
-  return `btms/asset/${assetId}`;
+  return `btms/asset/${assetId}`
 }
 
 /**
@@ -27,11 +27,8 @@ export function btmsAssetBasket(assetId: string): string {
  * VALID (BRC-98 compliant)
  *  - "btms/counterparty/<identityKey>/<assetId>"
  */
-export function btmsCounterpartyBasket(
-  identityKey: string,
-  assetId: string,
-): string {
-  return `btms/counterparty/${identityKey}/${assetId}`;
+export function btmsCounterpartyBasket(identityKey: string, assetId: string): string {
+  return `btms/counterparty/${identityKey}/${assetId}`
 }
 
 /**
@@ -41,7 +38,7 @@ export function btmsCounterpartyBasket(
  *  - "btms/offers/<uuid>"
  */
 export function btmsOfferBasket(offerId: string): string {
-  return `btms/offers/${offerId}`;
+  return `btms/offers/${offerId}`
 }
 
 /* ================================================================
@@ -76,17 +73,17 @@ export function btmsOfferBasket(offerId: string): string {
  */
 export function btmsFuturePermissionBasket(rest: string): string {
   // enforce BRC-99 rules:
-  if (rest.includes("\n")) {
-    throw new Error("Invalid BTMS P-basket: cannot contain newline");
+  if (rest.includes('\n')) {
+    throw new Error('Invalid BTMS P-basket: cannot contain newline')
   }
-  return `p btms ${rest}`;
+  return `p btms ${rest}`
 }
 
 /**
  * Detect whether a given basket ID is a BRC-99 P-scheme basket.
  */
 export function isPschemeBasket(basket: string): boolean {
-  return basket.startsWith("p ");
+  return basket.startsWith('p ')
 }
 
 /**
@@ -96,17 +93,17 @@ export function isPschemeBasket(basket: string): boolean {
  * during normal operation because BTMS does not generate "p " baskets today.
  */
 export function parsePschemeBasket(basket: string): {
-  schemeId: string;
-  rest: string;
+  schemeId: string
+  rest: string
 } | null {
-  if (!basket.startsWith("p ")) return null;
+  if (!basket.startsWith('p ')) return null
 
   // Format: p <schemeId> <rest>
-  const parts = basket.split(" ");
-  if (parts.length < 3) return null;
+  const parts = basket.split(' ')
+  if (parts.length < 3) return null
 
-  const schemeId = parts[1];
-  const rest = parts.slice(2).join(" ");
+  const schemeId = parts[1]
+  const rest = parts.slice(2).join(' ')
 
-  return { schemeId, rest };
+  return { schemeId, rest }
 }

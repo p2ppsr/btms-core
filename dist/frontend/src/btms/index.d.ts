@@ -1,223 +1,20 @@
-import { TXIDHexString, HexString, OutputTagStringUnder300Bytes, BasketStringUnder300Bytes, SatoshiValue, WalletProtocol, KeyIDStringUnder800Bytes, WalletCounterparty } from "@bsv/sdk";
-/**
- * New-world shape replacing "EnvelopeApi"
- */
-export interface BeefPayload {
-    rawTx?: string;
-    inputs?: any;
-    mapiResponses?: any;
-    proof?: any;
-    outputs?: any;
-    txid?: TXIDHexString;
-}
-export interface CreateActionOutput {
-    lockingScript?: HexString;
-    script?: string;
-    satoshis: SatoshiValue;
-    basket?: BasketStringUnder300Bytes;
-    description?: string;
-    tags?: OutputTagStringUnder300Bytes[];
-    customInstructions?: string;
-}
-export interface CreateActionInput extends BeefPayload {
-    outputsToRedeem: Array<{
-        index: number;
-        spendingDescription?: string;
-        unlockingScript: HexString;
-    }>;
-}
-export interface CreateActionResult extends BeefPayload {
-    description?: string;
-    topics?: Record<string, number[]>;
-    tx?: string;
-    atomicBeef?: string;
-    beef?: string;
-}
-export interface GetTransactionOutputResult {
-    txid: TXIDHexString;
-    vout: number;
-    lockingScript: HexString;
-    beefPayload?: BeefPayload;
-    customInstructions?: string;
-    basket?: BasketStringUnder300Bytes;
-    satoshis?: SatoshiValue;
-}
-export interface SpecificKeyLinkageResult {
-    prover: string;
-    protocolID: WalletProtocol;
-    keyID: KeyIDStringUnder800Bytes;
-    encryptedLinkage: Uint8Array;
-}
-export interface CounterpartyKeyLinkageResult {
-    prover: string;
-    encryptedLinkage: Uint8Array;
-}
-declare function setBTMSAuthFetch(fn: (url: string, init?: RequestInit) => Promise<Response>): void;
-declare class OverlayClient {
-    baseUrl: string;
-    apiKey?: string;
-    constructor(baseUrl: string, apiKey?: string);
-    private buildHeaders;
-    get<T = unknown>(path: string): Promise<T>;
-    post<T = unknown>(path: string, body: unknown): Promise<T>;
-}
-export interface LocalToken {
-    id: string;
-    assetId: string;
-    amount: SatoshiValue;
-    metadata?: Record<string, unknown> | string;
-}
-export declare function createLocalToken(assetId: string, amount: SatoshiValue, metadata?: Record<string, unknown> | string): LocalToken;
-export interface MarketplaceItem {
-    assetId: string;
-    amount: SatoshiValue;
-    seller: string;
-    description?: string;
-    desiredAssets?: Record<string, number>;
-    metadata?: string;
-}
-export declare function listMarketplaceItems(client: OverlayClient, query?: {
-    findAll?: boolean;
-    seller?: string;
-}): Promise<MarketplaceItem[]>;
-export declare function createMarketplaceItem(client: OverlayClient, item: MarketplaceItem): Promise<{
-    status: string;
-}>;
-export interface DecodedLinkage {
-    prover: string;
-    derivedKey: string;
-}
-export declare function decodeLinkageSimple(prover: string, linkageScalarHex: string): DecodedLinkage;
-export interface Asset {
-    assetId: string;
-    balance: SatoshiValue;
-    name?: string;
-    iconURL?: string;
-    metadata?: string;
-    incoming?: boolean;
-    incomingAmount?: SatoshiValue;
-    new?: boolean;
-}
-type BTMSGlobalCache = {
-    lastAssetSnapshot: Asset[];
-    lastAssetFetchMs: number;
-    /**
-     * <- NEW: once we’ve tried fetching at least once (even if it was empty or permissiony)
-     * we set this to true so future calls can stop hammering the wallet every 30s
-     * when there’s still nothing there.
-     */
-    hasFetchedOnce: boolean;
-};
-declare global {
-    var __btmsGlobalCacheNW__: BTMSGlobalCache | undefined;
-}
-export interface TokenForRecipient {
-    txid: TXIDHexString;
-    vout: number;
-    amount: SatoshiValue;
-    /** renamed from `envelope` */
-    beefPayload: CreateActionResult;
-    keyID: KeyIDStringUnder800Bytes;
-    lockingScript: HexString;
-}
-export interface SubmitResult {
-    status: "success";
-    topics: Record<string, number[]>;
-}
-export interface OverlaySearchResult {
-    inputs: string | null;
-    mapiResponses: string | null;
-    lockingScript: HexString;
-    proof: string | null;
-    rawTx: string;
-    satoshis: SatoshiValue;
-    txid: TXIDHexString;
-    vout: number;
-    beef?: number[];
-}
-export interface IncomingPayment {
-    txid: TXIDHexString;
-    vout: number;
-    lockingScript: HexString;
-    amount: SatoshiValue;
-    token: TokenForRecipient;
-    sender: string;
-    messageId: string;
-    keyID: KeyIDStringUnder800Bytes;
-    /** renamed from `envelope` */
-    beefPayload: CreateActionResult;
-}
-export interface OwnershipProof {
-    prover: string;
-    verifier: string;
-    assetId: string;
-    amount: SatoshiValue;
-    tokens: {
-        output: GetTransactionOutputResult;
-        linkage: SpecificKeyLinkageResult;
-    }[];
-}
-export interface MarketplaceEntry {
-    assetId: string;
-    amount: SatoshiValue;
-    seller: string;
-    description: string;
-    desiredAssets: Record<string, number>;
-    ownershipProof: OwnershipProof;
-    metadata: string;
-}
-export interface MarketplaceOffer {
-    buyerOffersAssetId: string;
-    buyerOffersamount: SatoshiValue;
-    buyerProof: OwnershipProof;
-    buyerPartialTX: string;
-    /** renamed from `buyerFundingEnvelope` */
-    buyerFundingBeefPayload: CreateActionResult | BeefPayload;
-    sellerEntry: MarketplaceEntry;
-    fundingkeyID: KeyIDStringUnder800Bytes;
-    messageId?: string;
-    rejected?: boolean;
-    isAsDesiredBySeller?: boolean;
-    desiredSellerkeyID?: KeyIDStringUnder800Bytes;
-    desiredSellerChangekeyID?: KeyIDStringUnder800Bytes;
-    desiredBuyerkeyID?: KeyIDStringUnder800Bytes;
-    desiredBuyerChangekeyID?: KeyIDStringUnder800Bytes;
-}
-/**
- * Helper args for the high-level sendBTMSToken(...) helper.
- * This wraps walletClient.createAction + btms.send so we always
- * carry an AtomicBEEF beefPayload end-to-end.
- */
-export interface SendBTMSTokenArgs {
-    recipient: string;
-    assetId: string;
-    amount: SatoshiValue;
-    keyID?: KeyIDStringUnder800Bytes;
-    messageBox?: string;
-    description?: string;
-    /**
-     * Exact CreateAction args to hand to walletClient.createAction.
-     * You build the inputs/outputs as usual in your UI and pass them here.
-     */
-    createActionArgs: any;
-    /**
-     * Optional vout index of the token output inside the created tx.
-     * Defaults to 0 if omitted.
-     */
-    tokenVout?: number;
-}
+import { LockingScript, UnlockingScript, AtomicBEEF, TXIDHexString, HexString, Transaction, DescriptionString5to50Bytes, BasketStringUnder300Bytes, SatoshiValue, WalletProtocol, KeyIDStringUnder800Bytes, WalletCounterparty, BroadcastResponse, BroadcastFailure, WalletOutput, ListOutputsArgs, WalletInterface } from '@bsv/sdk';
+export declare function setBTMSAuthFetch(fn: (url: string, init?: RequestInit) => Promise<Response>): void;
 declare class MessageBoxTokenator {
-    private wallet;
+    private walletClient;
     private defaultBox;
     private host;
     private client;
     private initPromise;
-    constructor(wallet: any, defaultBox: string, host?: string);
+    constructor(walletClient: WalletInterface, defaultBox: string, host?: string);
+    private static isUint8Array;
+    private static isNumberArray;
+    private static safeParseJSON;
     private ensureClient;
     sendMessage(args: {
         recipient: string;
         messageBox?: string;
-        body: any;
+        body: string;
     }): Promise<void>;
     listMessages(args: {
         messageBox?: string;
@@ -229,11 +26,146 @@ declare class MessageBoxTokenator {
         messageIds: string[];
     }): Promise<void>;
 }
+export interface Asset {
+    assetId: string;
+    balance: number;
+    name?: string;
+    iconURL?: string;
+    metadata?: string;
+    incoming?: boolean;
+    incomingAmount?: number;
+    new?: boolean;
+}
+export interface GetTransactionOutputResult {
+    txid: TXIDHexString;
+    vout: number;
+    lockingScript: HexString;
+    satoshis: SatoshiValue;
+    basket?: BasketStringUnder300Bytes;
+}
+export interface SpecificKeyLinkageResult {
+    assetId: string;
+    amount: number;
+}
+export interface TokenForRecipient {
+    txid: TXIDHexString;
+    vout: number;
+    /**
+     * Logical token quantity (e.g. 4 CAT), not satoshis.
+     */
+    amount: number;
+    /**
+     * Underlying satoshi value in the UTXO.
+     */
+    satoshis: SatoshiValue;
+    /**
+     * Canonical BEEF form (AtomicBEEF = Uint8Array).
+     * We normalise any incoming BEEF to this at the edges.
+     */
+    beef: AtomicBEEF;
+    /**
+     * Branded key ID from WalletInterface.
+     */
+    keyID: KeyIDStringUnder800Bytes;
+    /**
+     * Always a HEX string inside BTMS.
+     */
+    lockingScript: HexString;
+}
+export interface SubmitResult {
+    status: 'success';
+    topics: Record<string, number[]>;
+}
+export interface OverlaySearchResult {
+    inputs: string | null;
+    mapiResponses: string | null;
+    lockingScript: HexString;
+    proof: string | null;
+    rawTx: string;
+    satoshis: SatoshiValue;
+    txid: TXIDHexString;
+    vout: number;
+}
+export interface IncomingPayment {
+    tx: AtomicBEEF;
+    txid: TXIDHexString;
+    vout: number;
+    lockingScript: HexString;
+    amount: number;
+    satoshis: SatoshiValue;
+    sender: WalletCounterparty;
+    messageId?: string;
+    keyID: KeyIDStringUnder800Bytes;
+    assetId: string;
+}
+export interface OwnershipProof {
+    prover: WalletCounterparty;
+    verifier: WalletCounterparty;
+    assetId: string;
+    amount: number;
+    tokens: {
+        output: GetTransactionOutputResult;
+        linkage: SpecificKeyLinkageResult;
+    }[];
+}
+export interface MarketplaceEntry {
+    assetId: string;
+    amount: number;
+    seller: WalletCounterparty;
+    description: DescriptionString5to50Bytes;
+    desiredAssets: Record<string, number>;
+    ownershipProof: OwnershipProof;
+    metadata: string;
+}
+export interface MarketplaceOffer {
+    buyerOffersAssetId: string;
+    buyerOffersAmount: number;
+    buyerProof: OwnershipProof;
+    buyerPartialTX: string;
+    sellerEntry: MarketplaceEntry;
+    fundingKeyID: KeyIDStringUnder800Bytes;
+    messageId?: string;
+    rejected?: boolean;
+    isAsDesiredBySeller?: boolean;
+}
+export interface BTMSWalletOutput extends WalletOutput {
+    tx?: number;
+    outputIndex?: number;
+    vout?: number;
+    customInstructions?: string;
+}
+/**
+ * BTMSFundingToken
+ *
+ * A minimal new-world funding output:
+ * - Lock = simple P2PKH
+ * - Unlock = use PushDrop.unlock() with wallet keys
+ *
+ * This mirrors the hello-tokens pattern exactly.
+ */
+export declare class BTMSFundingToken {
+    private walletClient;
+    constructor(walletClient?: WalletInterface);
+    /**
+     * Create a P2PKH locking script for a fee-funding UTXO.
+     * Always returns HEX.
+     */
+    lock(protocolID: WalletProtocol, keyID: string, counterparty: WalletCounterparty): Promise<LockingScript>;
+    /**
+     * Unlocker for the funding UTXO.
+     * Uses PushDrop.unlock(), same as hello-tokens.
+     */
+    unlock(protocolID: WalletProtocol, keyID: string, counterparty: WalletCounterparty): {
+        sign: (tx: Transaction, inputIndex: number) => Promise<UnlockingScript>;
+        estimateLength: () => Promise<73>;
+    };
+}
 export declare class BTMS {
     tokenator: MessageBoxTokenator;
     tokensMessageBox: string;
     marketplaceMessageBox: string;
     protocolID: WalletProtocol;
+    protocolKeyID: KeyIDStringUnder800Bytes;
     basket: BasketStringUnder300Bytes;
     tokenTopic: string;
     satoshis: SatoshiValue;
@@ -241,54 +173,58 @@ export declare class BTMS {
     marketplaceTopic: string;
     private requester;
     private instanceId;
-    constructor(tokensMessageBox?: string, protocolID?: WalletProtocol, basket?: string, tokensTopic?: string, satoshis?: SatoshiValue, privateKey?: string, marketplaceMessageBox?: string, marketplaceTopic?: string);
-    getPublicKey(args: {
-        identityKey?: boolean;
-        protocolID?: WalletProtocol;
-        keyID?: KeyIDStringUnder800Bytes;
-        counterparty?: WalletCounterparty;
-        forSelf?: boolean;
-    }): Promise<string>;
-    listAssets(): Promise<Asset[]>;
-    listIncomingPayments(assetId?: string): Promise<IncomingPayment[]>;
-    acceptIncomingPayment(assetId: string, payment: IncomingPayment): Promise<void>;
-    refundIncomingTransaction(_assetId: string, payment: IncomingPayment): Promise<void>;
+    basketPrefix: BasketStringUnder300Bytes;
+    private getRandomKeyID;
+    constructor(tokensMessageBox?: string, protocolID?: WalletProtocol, protocolKeyID?: KeyIDStringUnder800Bytes, basket?: BasketStringUnder300Bytes, tokensTopic?: string, satoshis?: SatoshiValue, privateKey?: string, marketplaceMessageBox?: string, marketplaceTopic?: string);
     /**
-     * Send a BTMS-style payment/message to another identity via message-box-client.
-     * Hydration order: LookupResolver (Meter default) -> HTTP LARS (localhost:8080).
-     * Requires a non-empty AtomicBEEF (number[]/Uint8Array) OR resolves {txid,vout}
-     * automatically from the selected token (no UI txid/vout fields needed).
+     * Always return HEX string for locking scripts.
+     * Accepts: hex string, number[], Uint8Array
      */
-    send(...raw: Array<any | string | number>): Promise<void>;
-    private findFromTokenOverlay;
-    private submitToTokenOverlay;
-    issue(...rawArgs: any[]): Promise<{
-        assetId: string;
-        amount: SatoshiValue;
-        metadata: string;
-        /** renamed from `envelope` */
-        beefPayload?: any;
-        atomicBeef: string | null;
+    private toLockingScriptHex;
+    /**
+     * Always convert any BEEF-like value to AtomicBEEF (number[]).
+     * BTMS internal canonical BEEF type is number[] (AtomicBEEF).
+     */
+    private toAtomicBeef;
+    getTokens(assetId: string): Promise<BTMSWalletOutput[]>;
+    getBalance(assetId: string, myTokens?: BTMSWalletOutput[]): Promise<number>;
+    /**
+     * ISSUE: create brand-new BTMS tokens under basket "btms <name>"
+     */
+    issue(amount: number, name: string, assetId: string, metadata: string): Promise<BroadcastResponse | BroadcastFailure>;
+    listAssets(includeMode?: ListOutputsArgs["include"]): Promise<Asset[] | null>;
+    send(assetId: string, recipient: string, sendAmount: number, onPaymentSent?: (payment: TokenForRecipient) => void): Promise<SubmitResult>;
+    acceptIncomingPayment(assetId: string, payment: IncomingPayment): Promise<boolean>;
+    /**
+     * NEW-WORLD listAssets(): wallet = truth, overlays only supplement metadata.
+     */
+    listIncomingPayments(assetId?: string): Promise<IncomingPayment[]>;
+    /**
+     * Refund an incoming BTMS token back to sender.
+     * (New-world createAction → signAction pattern)
+     */
+    refundIncomingTransaction(assetId: string, payment: IncomingPayment): Promise<SubmitResult>;
+    getTransactions(assetId: string, limit: number, offset: number): Promise<{
+        transactions: {
+            date: string;
+            amount: number;
+            txid: string;
+            counterparty: WalletCounterparty;
+        }[];
     }>;
+    /**
+     * Cross-verify incoming token message against overlay content.
+     *
+     * @returns { verified: boolean, reason?: string }
+     */
+    /**
+     * Cross-verify an incoming BTMS token against the LARS overlay.
+     *
+     * Uses new-world LookupResolver correctly:
+     *   const resolver = new LookupResolver("ls_btms");
+     *   const result = await resolver.search({ txid, vout });
+     */
+    private verifyIncomingToken;
 }
-declare const btmsInstance: BTMS;
-declare const defaultExport: any;
-/**
- * Accept an incoming BTMS payment that was sent via MessageBox.
- * `beefPayload` is the wallet action you sent from sendBTMSToken.
- */
-export declare function acceptBTMSPayment(beefPayload: any): Promise<void>;
-/**
- * Thin helper that centralises BTMS send behaviour.
- *
- * - Normalises amount to a number
- * - Validates assetId / recipient
- * - Adds a per-call ID so logs can be correlated
- * - Delegates to btmsInstance.send(...) which will:
- *   * auto-select an outpoint for this assetId (from wallet.listOutputs)
- *   * hydrate AtomicBEEF (LookupResolver + HTTP, if needed)
- *   * send a MessageBox message containing { token, beef, beefPayload }
- */
-export declare function sendBTMSToken(rawArgs: any): Promise<void>;
-export { setBTMSAuthFetch, OverlayClient, btmsInstance as btms };
-export default defaultExport;
+export declare const btms: BTMS;
+export {};

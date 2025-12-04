@@ -1,167 +1,143 @@
-// src/components/Send/index.tsx
-
 // React / UI (btms-ui)
-import React, { useState } from "react";
-import {
-  Typography,
-  Button,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  TextField,
-} from "@mui/material";
-import { toast } from "react-toastify";
-import useStyles from "./send-style";
+import React, { useState, useMemo } from 'react'
+import { Typography, Button, Dialog, DialogActions, DialogContent, DialogTitle, TextField } from '@mui/material'
+import { toast } from 'react-toastify'
+import useStyles from './send-style'
 
-// btms-core facade singleton
-import BTMS from "../../btmsClient";
+import { Asset, btms } from '../../btms/index'
+import { SatoshiValue } from '@bsv/sdk'
 
-// sdk / types
-import type { Asset } from "../../btmsTypes";
-import { SatoshiValue } from "@bsv/sdk";
-
-// Local shape for the send args the core expects
 type SendArgs = {
-  assetId: string;
-  recipient: string;
-  amount: SatoshiValue;
-};
-
-interface SendProps {
-  assetId: string;
-  asset: Asset;
-  onReloadNeeded?: () => void;
+  assetId: string
+  recipient: string
+  amount: SatoshiValue
 }
 
-const Send: React.FC<SendProps> = ({
-  assetId,
-  asset,
-  onReloadNeeded = () => {},
-}) => {
-  const classes = useStyles();
-  const [recipient, setRecipient] = useState("");
-  const [quantity, setQuantity] = useState("");
+interface SendProps {
+  assetId: string
+  asset: Asset
+  onReloadNeeded?: () => void
+}
 
-  const [open, setOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
+const Send: React.FC<SendProps> = ({ assetId, asset, onReloadNeeded = () => {} }) => {
+  const classes = useStyles()
+
+  const [recipient, setRecipient] = useState('')
+  const [quantity, setQuantity] = useState('')
+
+  const [open, setOpen] = useState(false)
+  const [loading, setLoading] = useState(false)
+
+  // ----------------------------
+  // Dynamic UI validation
+  // ----------------------------
+
+  const qty = Number(quantity)
+
+  const quantityValid = quantity.trim() !== '' && Number.isFinite(qty) && qty > 0 && qty <= asset.balance
+
+  const recipientValid = recipient.trim() !== '' && recipient.length >= 66
+
+  // Disable send button when:
+  //  1. balance is 0
+  //  2. invalid quantity
+  //  3. invalid recipient
+  const canSend = asset.balance > 0 && quantityValid && recipientValid && !loading
 
   const handleSendCancel = () => {
-    setQuantity("");
-    setRecipient("");
-    setOpen(false);
-  };
+    setRecipient('')
+    setQuantity('')
+    setOpen(false)
+  }
 
   const handleSend = async () => {
     try {
-      setLoading(true);
-      const qty = Number(quantity);
+      setLoading(true)
 
-      if (recipient.trim() === "") {
-        toast.error("Enter recipient identity key!");
-      } else if (recipient.length < 66) {
-        toast.error(
-          "The recipient identity key must be at least 66 characters long!",
-        );
-      } else if (quantity.trim() === "" || Number.isNaN(qty)) {
-        toast.error("Enter a quantity of tokens to send!");
-      } else if (qty > asset.balance) {
-        toast.error("Oops! That is too many tokens!");
-      } else {
-        // Pass only the essentials; BTMS.send will auto-select an outpoint
-        // for this assetId and hydrate the BEEF internally.
-        const args: SendArgs = {
-          assetId,
-          recipient,
-          amount: qty,
-        };
-
-        if (!BTMS || typeof (BTMS as any).send !== "function") {
-          throw new Error("BTMS.send is not available in btms-core facade");
-        }
-
-        await (BTMS as any).send(args);
-
-        try {
-          onReloadNeeded();
-        } catch {
-          // ignore reload errors
-        }
-        toast.success(`You sent ${qty} ${asset.name}!`);
-        setOpen(false);
+      // -----------------------------
+      // RE-VALIDATE ON SUBMIT
+      // (no bypass possible)
+      // -----------------------------
+      if (!recipientValid) {
+        toast.error('Invalid recipient identity key!')
+        return
       }
-    } catch (error: any) {
-      console.error(error);
-      toast.error(error?.message || "Something went wrong!");
+
+      if (!quantityValid) {
+        toast.error('Invalid amount!')
+        return
+      }
+
+      await btms.send(assetId, recipient, qty)
+
+      try {
+        onReloadNeeded()
+      } catch {}
+
+      toast.success(`You sent ${qty} ${asset.name}!`)
+      setOpen(false)
+    } catch (err: any) {
+      console.error(err)
+      toast.error(err?.message || 'Something went wrong!')
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
 
   return (
     <>
-      <Button
-        onClick={() => setOpen(true)}
-        variant="outlined"
-        color="secondary"
-      >
+      {/* Disable main send button if balance = 0 */}
+      <Button onClick={() => setOpen(true)} variant="outlined" color="secondary" disabled={asset.balance === 0}>
         Send
       </Button>
+
       <Dialog open={open} onClose={handleSendCancel} color="primary">
-        <DialogTitle variant="h4" sx={{ fontWeight: "bold" }}>
+        <DialogTitle variant="h4" sx={{ fontWeight: 'bold' }}>
           Send {asset.name}
         </DialogTitle>
+
         <DialogContent>
           <Typography variant="h6">Recipient Identity Key:</Typography>
-          <Typography variant="subtitle2">
-            Get this from the person who will receive the token
-          </Typography>
+          <Typography variant="subtitle2">Get this from the person who will receive the token</Typography>
+
           <TextField
             className={classes.form}
             value={recipient}
             variant="outlined"
-            color="secondary"
             fullWidth
             helperText="Required"
-            onChange={(e) =>
-              setRecipient(e.target.value.replace(/[^0-9a-f]/gi, ""))
-            }
+            onChange={e => setRecipient(e.target.value.replace(/[^0-9a-f]/gi, ''))}
+            color="secondary"
           />
 
           <Typography variant="h6" className={classes.sub_title}>
             Quantity:
           </Typography>
+
           <TextField
             className={classes.form}
             value={quantity}
             variant="outlined"
             color="secondary"
             fullWidth
-            helperText="Required"
-            onChange={(e) => setQuantity(e.target.value.replace(/\D/g, ""))}
+            helperText={asset.balance > 0 ? `Available: ${asset.balance}` : 'You have no tokens'}
+            onChange={e => setQuantity(e.target.value.replace(/\D/g, ''))}
           />
         </DialogContent>
+
         <DialogActions className={classes.button}>
-          <Button
-            disabled={loading}
-            color="secondary"
-            variant="outlined"
-            onClick={handleSendCancel}
-          >
+          <Button disabled={loading} color="secondary" variant="outlined" onClick={handleSendCancel}>
             Cancel
           </Button>
-          <Button
-            disabled={loading}
-            color="secondary"
-            variant="outlined"
-            onClick={handleSend}
-          >
+
+          {/* ONLY ENABLE WHEN VALID */}
+          <Button disabled={!canSend} color="secondary" variant="outlined" onClick={handleSend}>
             Send Now
           </Button>
         </DialogActions>
       </Dialog>
     </>
-  );
-};
+  )
+}
 
-export default Send;
+export default Send

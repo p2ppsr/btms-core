@@ -3,3 +3,5 @@ out
 dist
 tsconfig.tsbuildinfo
 *.tgz
+dist
+local-data

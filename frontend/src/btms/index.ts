@@ -1,3219 +1,4497 @@
-// Updated Basic Token Management System (BTMS) library
-// Aligned with WalletInterface types for improved specificity and compatibility
-// This file incorporates refined types such as HexString, PositiveInteger, SatoshiValue, etc.
-// Structures like CreateActionOutput, BeefPayload, CreateActionInput, and SpecificKeyLinkageResult have been updated as per analysis
-// Imports from '@bsv/sdk' for core Bitcoin types
-// Legacy JS deps that don't ship .d.ts files.
-// We just suppress them here so VS Code / tsc stop yelling.
-// This keeps everything in THIS file, per instructions.
-import crypto from "crypto";
-// @ts-ignore -- JS lib, no types
-import stringify from "json-stable-stringify";
-// primitives that DO exist in @bsv/sdk 1.8.11
 import {
-  BigNumber,
-  Curve,
   LockingScript,
   P2PKH,
-  PrivateKey,
   PublicKey,
-  ScriptTemplate,
-  OP,
-  UnlockingScript,
-  TransactionSignature,
-  Signature,
-  Hash,
   Utils,
   PushDrop,
   WalletClient,
-  SHIPBroadcaster,
-  HTTPSOverlayBroadcastFacilitator,
-  LookupResolver,
   AtomicBEEF,
   InternalizeOutput,
   Beef,
-  WalletPayment,
   TXIDHexString,
   LabelStringUnder300Bytes,
   HexString,
   OutputTagStringUnder300Bytes,
   Transaction,
-  BooleanDefaultFalse,
-  Byte,
   OutpointString,
   DescriptionString5to50Bytes,
   BasketStringUnder300Bytes,
   SatoshiValue,
-  CertificateFieldNameUnder50Bytes,
-  PubKeyHex,
   Base64String,
   WalletProtocol,
   KeyIDStringUnder800Bytes,
   WalletCounterparty,
   OriginatorDomainNameStringUnder250Bytes,
-} from "@bsv/sdk";
+  WERR_REVIEW_ACTIONS,
+  TopicBroadcaster,
+  BroadcastResponse,
+  BroadcastFailure,
+  CreateActionResult,
+  CreateActionArgs,
+  WalletOutput,
+  CreateActionInput,
+  CreateActionOutput,
+  ListOutputsArgs,
+  ListOutputsResult,
+  WalletInterface,
+  SignActionArgs,
+  InternalizeActionArgs,
+  PositiveIntegerOrZero
+} from '@bsv/sdk'
 // use the shared logger (so logging.config.ts can turn this on/off)
-import { logWithTimestamp } from "../utils/logging";
-import { MessageBoxClient } from "@bsv/message-box-client";
-
-// Custom primitive types for better type safety
-type PositiveInteger = number & { __brand: "PositiveInteger" }; // Positive integer (branded for safety)
-type PositiveIntegerOrZero = number & { __brand: "PositiveIntegerOrZero" }; // Non-negative integer
-
-// ---------------------------------------------------------------------
-// Additional extracted and updated interfaces from analysis
-// ---------------------------------------------------------------------
-
-interface WalletAction {
-  txid: TXIDHexString;
-  satoshis: SatoshiValue;
-  status: string; // ActionStatus (e.g., 'pending', 'completed')
-  isOutgoing: boolean;
-  description: DescriptionString5to50Bytes;
-  labels?: LabelStringUnder300Bytes[];
-  version: PositiveIntegerOrZero;
-  lockTime: PositiveIntegerOrZero;
-  inputs?: WalletActionInput[];
-  outputs?: WalletActionOutput[];
-}
-
-interface WalletActionInput {
-  sourceOutpoint: OutpointString;
-  sourceSatoshis: SatoshiValue;
-  sourceLockingScript?: HexString;
-  unlockingScript?: HexString;
-  inputDescription: DescriptionString5to50Bytes;
-  sequenceNumber: PositiveIntegerOrZero;
-}
-
-interface WalletActionOutput {
-  satoshis: SatoshiValue;
-  lockingScript?: HexString;
-  spendable: boolean;
-  customInstructions?: string;
-  tags: OutputTagStringUnder300Bytes[];
-  outputIndex: PositiveIntegerOrZero;
-  outputDescription: DescriptionString5to50Bytes;
-  basket: BasketStringUnder300Bytes;
-}
-
-interface WalletCertificate {
-  type: Base64String;
-  subject: PubKeyHex;
-  serialNumber: Base64String;
-  certifier: PubKeyHex;
-  revocationOutpoint: OutpointString;
-  signature: HexString;
-  fields: Record<CertificateFieldNameUnder50Bytes, string>;
-}
-
-interface WalletOutput {
-  satoshis: SatoshiValue;
-  lockingScript?: HexString;
-  spendable: boolean;
-  customInstructions?: string;
-  tags?: OutputTagStringUnder300Bytes[];
-  outpoint: OutpointString;
-  labels?: LabelStringUnder300Bytes[];
-}
-
-// Placeholder for other args/results (updated with refined types where applicable)
-interface CreateActionArgs {
-  // Example: inputs: CreateActionInput[], outputs: CreateActionOutput[]
-  // Add as needed
-}
-
-interface SignActionArgs {}
-interface SignActionResult {}
-interface AbortActionArgs {}
-interface AbortActionResult {}
-interface ListActionsArgs {}
-interface ListActionsResult {
-  actions: WalletAction[];
-}
-// NOTE: we now use SDKInternalizeActionArgs / SDKInternalizeActionResult for
-// real calls; these placeholders are only for the Wallet interface shape.
-interface InternalizeActionArgs {}
-interface InternalizeActionResult {}
-interface ListOutputsArgs {}
-interface ListOutputsResult {
-  outputs: WalletOutput[];
-}
-interface RelinquishOutputArgs {}
-interface RelinquishOutputResult {}
-interface AcquireCertificateArgs {}
-interface AcquireCertificateResult {
-  certificate: WalletCertificate;
-}
-interface ListCertificatesArgs {}
-interface ListCertificatesResult {
-  certificates: WalletCertificate[];
-}
-interface ProveCertificateArgs {}
-interface ProveCertificateResult {}
-interface RelinquishCertificateArgs {}
-interface RelinquishCertificateResult {}
-interface DiscoverByIdentityKeyArgs {}
-interface DiscoverCertificatesResult {}
-interface DiscoverByAttributesArgs {}
-interface AuthenticatedResult {
-  authenticated: boolean;
-}
-interface GetHeightResult {
-  height: PositiveInteger;
-}
-interface GetHeaderArgs {}
-interface GetHeaderResult {
-  header: HexString;
-}
-interface GetNetworkResult {
-  network: string;
-}
-interface GetVersionResult {
-  version: string;
-}
-
-// Crypto-related args/results
-interface GetPublicKeyArgs {}
-interface GetPublicKeyResult {
-  publicKey: PubKeyHex;
-}
-interface RevealCounterpartyKeyLinkageArgs {}
-interface RevealCounterpartyKeyLinkageResult {}
-interface RevealSpecificKeyLinkageArgs {}
-interface RevealSpecificKeyLinkageResult extends SpecificKeyLinkageResult {}
-interface WalletEncryptArgs extends WalletEncryptionArgs {
-  plaintext: Byte[];
-}
-interface WalletEncryptResult {
-  ciphertext: Byte[];
-}
-interface WalletDecryptArgs extends WalletEncryptionArgs {
-  ciphertext: Byte[];
-}
-interface WalletDecryptResult {
-  plaintext: Byte[];
-}
-interface CreateHmacArgs extends WalletEncryptionArgs {
-  data: Byte[];
-}
-interface CreateHmacResult {
-  hmac: Byte[];
-}
-interface VerifyHmacArgs extends WalletEncryptionArgs {
-  data: Byte[];
-  hmac: Byte[];
-}
-interface VerifyHmacResult {
-  valid: boolean;
-}
-interface CreateSignatureArgs extends WalletEncryptionArgs {
-  data?: Byte[];
-  hashToDirectlyVerify?: Byte[];
-  forSelf?: BooleanDefaultFalse;
-}
-interface CreateSignatureResult {
-  signature: Byte[];
-}
-interface VerifySignatureArgs extends WalletEncryptionArgs {
-  data?: Byte[];
-  hashToDirectlyVerify?: Byte[];
-  signature: Byte[];
-  forSelf?: BooleanDefaultFalse;
-}
-interface VerifySignatureResult {
-  valid: boolean;
-}
-
-// Common encryption args
-interface WalletEncryptionArgs {
-  protocolID: WalletProtocol;
-  keyID: KeyIDStringUnder800Bytes;
-  counterparty?: WalletCounterparty;
-  privileged?: BooleanDefaultFalse;
-  privilegedReason?: DescriptionString5to50Bytes;
-  seekPermission?: boolean; // Default true
-}
-
-// WalletCryptoObject interface (updated)
-interface WalletCryptoObject {
-  getPublicKey: (
-    args: GetPublicKeyArgs,
-    originator?: OriginatorDomainNameStringUnder250Bytes,
-  ) => Promise<GetPublicKeyResult>;
-  revealCounterpartyKeyLinkage: (
-    args: RevealCounterpartyKeyLinkageArgs,
-    originator?: OriginatorDomainNameStringUnder250Bytes,
-  ) => Promise<RevealCounterpartyKeyLinkageResult>;
-  revealSpecificKeyLinkage: (
-    args: RevealSpecificKeyLinkageArgs,
-    originator?: OriginatorDomainNameStringUnder250Bytes,
-  ) => Promise<RevealSpecificKeyLinkageResult>;
-  encrypt: (
-    args: WalletEncryptArgs,
-    originator?: OriginatorDomainNameStringUnder250Bytes,
-  ) => Promise<WalletEncryptResult>;
-  decrypt: (
-    args: WalletDecryptArgs,
-    originator?: OriginatorDomainNameStringUnder250Bytes,
-  ) => Promise<WalletDecryptResult>;
-  createHmac: (
-    args: CreateHmacArgs,
-    originator?: OriginatorDomainNameStringUnder250Bytes,
-  ) => Promise<CreateHmacResult>;
-  verifyHmac: (
-    args: VerifyHmacArgs,
-    originator?: OriginatorDomainNameStringUnder250Bytes,
-  ) => Promise<VerifyHmacResult>;
-  createSignature: (
-    args: CreateSignatureArgs,
-    originator?: OriginatorDomainNameStringUnder250Bytes,
-  ) => Promise<CreateSignatureResult>;
-  verifySignature: (
-    args: VerifySignatureArgs,
-    originator?: OriginatorDomainNameStringUnder250Bytes,
-  ) => Promise<VerifySignatureResult>;
-}
-
-// Main Wallet interface (extended and updated)
-interface Wallet extends WalletCryptoObject {
-  createAction: (
-    args: CreateActionArgs,
-    originator?: OriginatorDomainNameStringUnder250Bytes,
-  ) => Promise<CreateActionResult>;
-  signAction: (
-    args: SignActionArgs,
-    originator?: OriginatorDomainNameStringUnder250Bytes,
-  ) => Promise<SignActionResult>;
-  abortAction: (
-    args: AbortActionArgs,
-    originator?: OriginatorDomainNameStringUnder250Bytes,
-  ) => Promise<AbortActionResult>;
-  listActions: (
-    args: ListActionsArgs,
-    originator?: OriginatorDomainNameStringUnder250Bytes,
-  ) => Promise<ListActionsResult>;
-  internalizeAction: (
-    args: InternalizeActionArgs,
-    originator?: OriginatorDomainNameStringUnder250Bytes,
-  ) => Promise<InternalizeActionResult>;
-  listOutputs: (
-    args: ListOutputsArgs,
-    originator?: OriginatorDomainNameStringUnder250Bytes,
-  ) => Promise<ListOutputsResult>;
-  relinquishOutput: (
-    args: RelinquishOutputArgs,
-    originator?: OriginatorDomainNameStringUnder250Bytes,
-  ) => Promise<RelinquishOutputResult>;
-  acquireCertificate: (
-    args: AcquireCertificateArgs,
-    originator?: OriginatorDomainNameStringUnder250Bytes,
-  ) => Promise<AcquireCertificateResult>;
-  listCertificates: (
-    args: ListCertificatesArgs,
-    originator?: OriginatorDomainNameStringUnder250Bytes,
-  ) => Promise<ListCertificatesResult>;
-  proveCertificate: (
-    args: ProveCertificateArgs,
-    originator?: OriginatorDomainNameStringUnder250Bytes,
-  ) => Promise<ProveCertificateResult>;
-  relinquishCertificate: (
-    args: RelinquishCertificateArgs,
-    originator?: OriginatorDomainNameStringUnder250Bytes,
-  ) => Promise<RelinquishCertificateResult>;
-  discoverByIdentityKey: (
-    args: DiscoverByIdentityKeyArgs,
-    originator?: OriginatorDomainNameStringUnder250Bytes,
-  ) => Promise<DiscoverCertificatesResult>;
-  discoverByAttributes: (
-    args: DiscoverByAttributesArgs,
-    originator?: OriginatorDomainNameStringUnder250Bytes,
-  ) => Promise<DiscoverCertificatesResult>;
-  isAuthenticated: (
-    args: {},
-    originator?: OriginatorDomainNameStringUnder250Bytes,
-  ) => Promise<AuthenticatedResult>;
-  waitForAuthentication: (
-    args: {},
-    originator?: OriginatorDomainNameStringUnder250Bytes,
-  ) => Promise<AuthenticatedResult>;
-  getHeight: (
-    args: {},
-    originator?: OriginatorDomainNameStringUnder250Bytes,
-  ) => Promise<GetHeightResult>;
-  getHeaderForHeight: (
-    args: GetHeaderArgs,
-    originator?: OriginatorDomainNameStringUnder250Bytes,
-  ) => Promise<GetHeaderResult>;
-  getNetwork: (
-    args: {},
-    originator?: OriginatorDomainNameStringUnder250Bytes,
-  ) => Promise<GetNetworkResult>;
-  getVersion: (
-    args: {},
-    originator?: OriginatorDomainNameStringUnder250Bytes,
-  ) => Promise<GetVersionResult>;
-}
-
-function makeBasketId(raw: string): BasketStringUnder300Bytes {
-  const trimmed = raw.trim() as BasketStringUnder300Bytes;
-
-  // BRC-99: reserve all 'p ' baskets for P-schemes.
-  if (trimmed.startsWith("p ")) {
-    throw new Error(
-      'Basket IDs starting with "p " are reserved by BRC-99 P-schemes and cannot be used by BTMS.',
-    );
-  }
-
-  // You can add length checks here if you want to be stricter than the SDK.
-  return trimmed;
-}
-
-/**
- * Global debug switch. Leave on while we’re chasing the repeated calls.
- */
-const BTMS_DEBUG = true;
-
-/**
- * A stable tag so we can see WHICH version of this file is being executed
- * after hot-reloads / re-bundles.
- */
-const BTMS_SOURCE_TAG = "frontend/src/btms/index.ts@debug-hmr-05";
+import { logWithTimestamp } from '../utils/logging'
+import { MessageBoxClient } from '@bsv/message-box-client'
 
 /**
  * Simple wrapper so all BTMS debug lines have a consistent prefix.
  */
+/**
+ * Global debug switch. Leave on while we’re chasing the repeated calls.
+ */
+const BTMS_DEBUG = true
+
+const BTMS_SOURCE_TAG = 'frontend/src/btms/index.ts@debug-hmr-39'
+
+// For testing
+// Name of the permission scheme / protocol (BRC-98/99)
+const PERMISSION_PROTOCOL = getNormalisedLabel('btmsToken')
+const ASSET_ID_TERM = getNormalisedLabel('assetId')
+
+const PROTOCOL = PERMISSION_PROTOCOL
+const PROTOCOL_KEY_ID = '1'
+
+const PROTOCOL_ID: WalletProtocol = [0, PROTOCOL]
+
+// Basket prefix = protocol / permission scheme name
+const BASKET_PREFIX = PROTOCOL
+
+// 1-sat discovery UTXOs live under this basket namespace
+const DISCOVERY_BASKET = PROTOCOL
+
+// Initial basket when BTMS starts (same for now)
+const INIT_BASKET = DISCOVERY_BASKET
+
+// Version prefix for asset namespace (e.g., v1, v2, v3)
+const ASSET_ID_VERSION_PREFIX = 'v'
+const ASSET_ID_VERSION = `${ASSET_ID_VERSION_PREFIX}1` // "v1"
+
+// btmstoken v1
+const TOKEN_BASKET_PREFIX = `${PROTOCOL} ${ASSET_ID_VERSION}`
+
+// btmstoken v1 assetid=
+const ASSET_PROTOCOL = `${TOKEN_BASKET_PREFIX} ${ASSET_ID_TERM}=`
+
+console.log('BTMS-HMR-TEST: index.ts loaded', {
+  ts: new Date().toISOString(),
+  PROTOCOL_ID,
+  PERMISSION_PROTOCOL,
+  DISCOVERY_BASKET,
+  ASSET_ID_VERSION
+})
+
 function btmsDebug(label: string, ...rest: any[]) {
-  if (!BTMS_DEBUG) return;
-  logWithTimestamp(`[BTMS:${BTMS_SOURCE_TAG}] ${label}`, ...rest);
+  if (!BTMS_DEBUG) return
+  //if (label.startsWith('listAssets')) {
+  logWithTimestamp(`[BTMS:${BTMS_SOURCE_TAG}] ${label}`, ...rest)
+  //}
 }
 
 /**
  * per-call id so we can correlate
  */
-function makeDebugCallId(prefix = "call"): string {
-  return `${prefix}_${Math.random().toString(36).slice(2, 8)}`;
+function makeDebugCallId(prefix = 'call'): string {
+  return `${prefix}_${Math.random().toString(36).slice(2, 8)}`
 }
 
-const ANYONE =
-  "0000000000000000000000000000000000000000000000000000000000000001";
-
-/**
- * New-world shape replacing "EnvelopeApi"
- */
-export interface BeefPayload {
-  rawTx?: string;
-  inputs?: any;
-  mapiResponses?: any;
-  proof?: any;
-  outputs?: any;
-  txid?: TXIDHexString;
-}
-
-export interface CreateActionOutput {
-  lockingScript?: HexString;
-  script?: string;
-  satoshis: SatoshiValue;
-  basket?: BasketStringUnder300Bytes;
-  description?: string;
-  tags?: OutputTagStringUnder300Bytes[];
-  customInstructions?: string;
-}
-
-export interface CreateActionInput extends BeefPayload {
-  outputsToRedeem: Array<{
-    index: number;
-    spendingDescription?: string;
-    unlockingScript: HexString;
-  }>;
-}
-
-export interface CreateActionResult extends BeefPayload {
-  description?: string;
-  topics?: Record<string, number[]>;
-  tx?: string;
-  atomicBeef?: string;
-  beef?: string;
-}
-
-export interface GetTransactionOutputResult {
-  txid: TXIDHexString;
-  vout: number;
-  lockingScript: HexString;
-  beefPayload?: BeefPayload;
-  customInstructions?: string;
-  basket?: BasketStringUnder300Bytes;
-  satoshis?: SatoshiValue;
-}
-
-export interface SpecificKeyLinkageResult {
-  prover: string;
-  protocolID: WalletProtocol;
-  keyID: KeyIDStringUnder800Bytes;
-  encryptedLinkage: Uint8Array;
-}
-
-export interface CounterpartyKeyLinkageResult {
-  prover: string;
-  encryptedLinkage: Uint8Array;
-}
-
-/* ------------------------------------------------------------------ */
-/* small helpers */
-/* ------------------------------------------------------------------ */
-// pull the pubkey and the data fields out of a BTMS-style locking script
-function parseBTMSScriptFull(scriptHex: string): {
-  lockingPublicKey?: PubKeyHex;
-  assetId?: string;
-  amount?: SatoshiValue;
-  metadata?: string;
-} {
-  if (!scriptHex || typeof scriptHex !== "string") return {};
-  const lower = scriptHex.toLowerCase();
-  let lockingPublicKey: PubKeyHex | undefined;
-  // legacy BTMS script is: 21 <33-byte pubkey> ac <push assetId> <push amount> <push metadata> ... drops
-  if (lower.startsWith("21") && lower.length > 70) {
-    // after "21" we have 33 bytes (66 hex)
-    lockingPublicKey = lower.slice(2, 68) as PubKeyHex;
-  }
-  const decoded = decodeBTMSTokenFromScript(lower);
-  return {
-    lockingPublicKey,
-    assetId: decoded?.assetId,
-    amount: decoded?.amount,
-    metadata: decoded?.metadata,
-  };
-}
-
-function shortHex(hex?: string | null, len = 16): string {
-  if (!hex || typeof hex !== "string") return String(hex);
-  const h = hex.toLowerCase();
-  return h.length <= len ? h : `${h.slice(0, len)}…(${h.length})`;
-}
-
-function isLikelyHex(s: any): boolean {
-  return typeof s === "string" && /^[0-9a-fA-F]+$/.test(s);
-}
-
-/**
- * Global, optional, app-provided authenticated fetch.
- */
-let activeAuthFetch:
-  | ((url: string, init?: RequestInit) => Promise<Response>)
-  | null = null;
-
-function setBTMSAuthFetch(
-  fn: (url: string, init?: RequestInit) => Promise<Response>,
-) {
-  activeAuthFetch = fn;
-}
-
-async function fetchJSON<T = unknown>(
-  url: string,
-  opts: RequestInit = {},
-): Promise<T> {
-  const res = await fetch(url, {
-    headers: {
-      "Content-Type": "application/json",
-      ...(opts.headers || {}),
-    },
-    ...opts,
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`HTTP ${res.status} for ${url}: ${text}`);
-  }
-  return (await res.json()) as T;
-}
-
-function makeId(prefix = "id"): string {
-  return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
-}
-
-/* ------------------------------------------------------------------ */
-/* wallet client we already have */
-/* ------------------------------------------------------------------ */
-/**
- * Concrete runtime type for the WalletClient instance, merged with
- * your WalletInterface spec so we get proper listOutputs/internalizeAction
- * typings instead of any/namespace hacks.
- */
-const walletClient = new WalletClient();
-//const WALLET_BASE = 'http://localhost:3321'
-//const walletClient = new WalletClient('json-api', WALLET_BASE)
-void walletClient
-  .getPublicKey({ identityKey: true })
-  .then((pk: any) => btmsDebug("wallet.getPublicKey(identity):", pk))
-  .catch((e: any) => btmsDebug("wallet.getPublicKey failed:", e));
-
-const OVERLAY_BASE =
-  (typeof window !== "undefined" && (window as any).__BTMS_OVERLAY_BASE__) ||
-  (typeof process !== "undefined" && (process as any).env?.BTMS_OVERLAY_URL) ||
-  (typeof location !== "undefined" && location.hostname === "localhost"
-    ? "http://localhost:8080"
-    : "https://overlay-eu-1.bsvb.tech");
+const walletClient = new WalletClient()
 
 /* ------------------------------------------------------------------ */
 /* script extraction from a wallet-output object */
 /* ------------------------------------------------------------------ */
 function extractLockingScriptFromWalletOutput(o: any): string {
-  if (!o || typeof o !== "object") return "";
-  if (typeof o.lockingScript === "string" && o.lockingScript)
-    return o.lockingScript;
-  if (typeof o.script === "string" && o.script) return o.script;
-  const envOut = o.beefPayload?.outputs?.[0];
+  if (!o || typeof o !== 'object') return ''
+  if (typeof o.lockingScript === 'string' && o.lockingScript) return o.lockingScript
+  if (typeof o.script === 'string' && o.script) return o.script
+  const envOut = o.beefPayload?.outputs?.[0]
   if (envOut) {
-    if (typeof envOut.lockingScript === "string" && envOut.lockingScript) {
-      return envOut.lockingScript;
+    if (typeof envOut.lockingScript === 'string' && envOut.lockingScript) {
+      return envOut.lockingScript
     }
-    if (typeof envOut.script === "string" && envOut.script) {
-      return envOut.script;
+    if (typeof envOut.script === 'string' && envOut.script) {
+      return envOut.script
     }
   }
-  const outs0 = o.outputs?.[0];
+  const outs0 = o.outputs?.[0]
   if (outs0) {
-    if (typeof outs0.lockingScript === "string" && outs0.lockingScript) {
-      return outs0.lockingScript;
+    if (typeof outs0.lockingScript === 'string' && outs0.lockingScript) {
+      return outs0.lockingScript
     }
-    if (typeof outs0.script === "string" && outs0.script) {
-      return outs0.script;
+    if (typeof outs0.script === 'string' && outs0.script) {
+      return outs0.script
     }
   }
-  const outObj = o.output;
+  const outObj = o.output
   if (outObj) {
-    if (typeof outObj.lockingScript === "string" && outObj.lockingScript) {
-      return outObj.lockingScript;
+    if (typeof outObj.lockingScript === 'string' && outObj.lockingScript) {
+      return outObj.lockingScript
     }
-    if (typeof outObj.script === "string" && outObj.script) {
-      return outObj.script;
-    }
-  }
-  return "";
-}
-
-/* ------------------------------------------------------------------ */
-/* if we only have an outpoint, try to fetch script from wallet HTTP */
-/* ------------------------------------------------------------------ */
-function parseOutpoint(s?: string): { txid: TXIDHexString; vout: number } {
-  if (!s || typeof s !== "string")
-    return { txid: "" as TXIDHexString, vout: NaN };
-  const sep = s.includes(".")
-    ? "."
-    : s.includes(":")
-      ? ":"
-      : s.includes("-")
-        ? "-"
-        : "";
-  if (!sep) return { txid: "" as TXIDHexString, vout: NaN };
-  const [t, v] = s.split(sep);
-  return { txid: (t || "").toLowerCase() as TXIDHexString, vout: Number(v) };
-}
-
-async function fetchScriptForOutpoint(outpoint: string): Promise<string> {
-  // Legacy helper: in the old world this tried wallet/overlay HTTP lookups.
-  // In the new world, WalletClient.listOutputs is the ONLY source of scripts,
-  // so this is now just a parser + debug stub that always returns ''.
-  let txid = "";
-  let voutStr = "";
-  if (outpoint.includes(".")) {
-    [txid, voutStr] = outpoint.split(".");
-  } else if (outpoint.includes(":")) {
-    [txid, voutStr] = outpoint.split(":");
-  } else if (outpoint.includes("-")) {
-    [txid, voutStr] = outpoint.split("-");
-  } else {
-    if (BTMS_DEBUG) {
-      btmsDebug("fetchScriptForOutpoint: unsupported outpoint format (stub)", {
-        outpoint,
-      });
-    }
-    return "";
-  }
-  const vout = Number(voutStr);
-  if (!txid || Number.isNaN(vout)) {
-    if (BTMS_DEBUG) {
-      btmsDebug(
-        "fetchScriptForOutpoint: invalid txid/vout parsed from outpoint (stub)",
-        {
-          outpoint,
-          txid,
-          voutStr,
-        },
-      );
-    }
-    return "";
-  }
-  if (BTMS_DEBUG) {
-    btmsDebug(
-      "fetchScriptForOutpoint: stub active; no HTTP/overlay lookup performed",
-      {
-        outpoint,
-        txid,
-        vout,
-      },
-    );
-  }
-  // If the WalletClient output didn't already include a lockingScript,
-  // we currently treat this as plain BSV and do not attempt to fetch a script.
-  return "";
-}
-
-/* ------------------------------------------------------------------ */
-/* BTMS token script decoder */
-/* ------------------------------------------------------------------ */
-function decodeBTMSTokenFromScript(
-  scriptHex: HexString,
-): { assetId: string; amount: SatoshiValue; metadata: string } | null {
-  if (!scriptHex || typeof scriptHex !== "string") return null;
-  let body = scriptHex.toLowerCase();
-  if (body.startsWith("21") && body.length > 70) {
-    body = body.slice(70);
-  } else if (body.startsWith("51")) {
-    body = body.slice(2);
-  }
-  const fields: string[] = [];
-  let i = 0;
-  while (i < body.length) {
-    const opcodeHex = body.slice(i, i + 2);
-    if (!opcodeHex) break;
-    const opcode = parseInt(opcodeHex, 16);
-    if (opcode === 0x75 || opcode === 0x6d) {
-      break;
-    }
-    if (opcode > 0 && opcode <= 0x4b) {
-      const byteLen = opcode;
-      const dataHex = body.slice(i + 2, i + 2 + byteLen * 2);
-      const val = Buffer.from(dataHex, "hex").toString("utf8");
-      fields.push(val);
-      i = i + 2 + byteLen * 2;
-      continue;
-    }
-    if (opcode === 0x4c) {
-      const lenHex = body.slice(i + 2, i + 4);
-      const byteLen = parseInt(lenHex, 16);
-      const dataHex = body.slice(i + 4, i + 4 + byteLen * 2);
-      const val = Buffer.from(dataHex, "hex").toString("utf8");
-      fields.push(val);
-      i = i + 4 + byteLen * 2;
-      continue;
-    }
-    if (opcode === 0x4d) {
-      const lenHexLE = body.slice(i + 2, i + 6);
-      const lenBuf = Buffer.from(lenHexLE, "hex");
-      const byteLen = lenBuf.readUInt16LE(0);
-      const dataHex = body.slice(i + 6, i + 6 + byteLen * 2);
-      const val = Buffer.from(dataHex, "hex").toString("utf8");
-      fields.push(val);
-      i = i + 6 + byteLen * 2;
-      continue;
-    }
-    break;
-  }
-  const assetId = fields[0] || "";
-  const amountStr = fields[1] || "0";
-  const amount = Number(amountStr) as SatoshiValue;
-  const metadata = fields[2] || "";
-  if (!assetId) return null;
-  return { assetId, amount, metadata };
-}
-
-function decodeBTMSTokenFromCustomInstructions(ci: any): {
-  assetId: string;
-  amount: SatoshiValue;
-  metadata: string;
-} | null {
-  if (!ci) return null;
-  let obj: any = ci;
-  if (typeof ci === "string") {
-    try {
-      obj = JSON.parse(ci);
-    } catch {
-      return null;
+    if (typeof outObj.script === 'string' && outObj.script) {
+      return outObj.script
     }
   }
-  if (obj.kind === "btms-mint" && obj.assetId) {
-    return {
-      assetId: obj.assetId,
-      amount: Number(obj.amount ?? 0) as SatoshiValue,
-      metadata:
-        typeof obj.metadata === "string"
-          ? obj.metadata
-          : JSON.stringify(obj.metadata || ""),
-    };
-  }
-  return null;
+  return ''
 }
 
 /* ------------------------------------------------------------------ */
-/* mint helper */
+/* small helpers */
 /* ------------------------------------------------------------------ */
-async function walletMint(
-  lockingScript: HexString,
-  basket: BasketStringUnder300Bytes,
-  satoshis: SatoshiValue,
-  description = "BTMS mint",
-  extra?: {
-    assetId?: string;
-    amount?: SatoshiValue;
-    metadata?: string;
-  },
-): Promise<any | null> {
-  const wallet: any = walletClient;
-  btmsDebug("MINT:walletMint: start", {
-    basket,
-    satoshis,
-    lockingScriptPreview: shortHex(lockingScript, 32),
-    isHex: isLikelyHex(lockingScript),
-    length: typeof lockingScript === "string" ? lockingScript.length : "n/a",
-    extra,
-  });
-  if (!wallet) {
-    btmsDebug("MINT:walletMint: walletClient is undefined/null");
-    return null;
-  }
-  if (typeof lockingScript !== "string") {
-    btmsDebug("MINT:walletMint: BAD lockingScript type", {
-      typeofLockingScript: typeof lockingScript,
-    });
-    throw new Error("lockingScript must be a hex string");
-  }
-  const trimmedLockingScript = lockingScript.trim();
-  if (!isLikelyHex(trimmedLockingScript)) {
-    btmsDebug(
-      "MINT:walletMint: lockingScript fails hex check",
-      shortHex(trimmedLockingScript),
-    );
-  }
-  const customInstructions =
-    extra && (extra.assetId || extra.amount || extra.metadata)
-      ? JSON.stringify({
-          kind: "btms-mint",
-          assetId: extra.assetId,
-          amount: extra.amount,
-          metadata: extra.metadata,
-        })
-      : undefined;
-  const tags: OutputTagStringUnder300Bytes[] = ["btms", "mint", "tokens"];
-  if (extra?.assetId) {
-    tags.push(`asset:${extra.assetId}`);
-  }
-  const actionReq = {
-    description,
-    outputs: [
-      {
-        lockingScript: trimmedLockingScript,
-        satoshis,
-        basket,
-        description,
-        outputDescription:
-          description && description.length >= 5 ? description : "BTMS mint",
-        customInstructions,
-        tags,
-      } as CreateActionOutput,
-    ],
-    options: { randomizeOutputs: false },
-  };
-  btmsDebug("MINT:walletMint: calling wallet.createAction with", {
-    ...actionReq,
-    outputs: actionReq.outputs.map((o) => ({
-      ...o,
-      lockingScript: shortHex(o.lockingScript, 32),
-    })),
-  });
-  const startedAt = Date.now();
-  const action = await wallet.createAction(actionReq).catch((err: any) => {
-    btmsDebug("MINT:walletMint: wallet.createAction FAILED", {
-      message: err?.message,
-      name: err?.name,
-      stack: err?.stack,
-    });
-    return null;
-  });
-  btmsDebug(
-    "MINT:walletMint: wallet.createAction durationMs",
-    Date.now() - startedAt,
-  );
-  if (!action) {
-    btmsDebug(
-      "MINT:walletMint: createAction returned null — likely validation failure above",
-    );
-    return null;
-  }
-  try {
-    const a: any = action as any;
-    const atomicBeef = a.tx || a.atomicBeef || a.beef;
-    if (atomicBeef) {
-      btmsDebug(
-        "MINT:walletMint: action has atomic BEEF, broadcasting via HTTPSOverlay + SHIP…",
-      );
-      const tx = Transaction.fromAtomicBEEF(atomicBeef);
-      const facilitator = new HTTPSOverlayBroadcastFacilitator(fetch, true);
-      facilitator.allowHTTP = true;
-      const broadcaster = new SHIPBroadcaster(["tm_btms"], {
-        networkPreset: "local",
-        facilitator,
-        requireAcknowledgmentFromAnyHostForTopics: "any" as const,
-      });
-      const result = await broadcaster.broadcast(tx);
-      btmsDebug("MINT:walletMint: SHIP broadcast result", result);
-    } else {
-      btmsDebug(
-        "MINT:walletMint: createAction result had no atomic BEEF (tx) — skipping broadcast",
-      );
-    }
-  } catch (e: any) {
-    btmsDebug("MINT:walletMint: BTMS/SHIP broadcast failed (continuing)", {
-      message: e?.message,
-      stack: e?.stack,
-    });
-  }
-  btmsDebug("MINT:walletMint: SUCCESS path done, returning action");
-  return action;
-}
-
-/* ------------------------------------------------------------------ */
-/* wallet helper wrappers */
-/* ------------------------------------------------------------------ */
-async function walletGetPublicKey(args: any): Promise<string> {
-  const res = await (walletClient as any).getPublicKey(args);
-  if (typeof res === "string") return res;
-  if (res && typeof res.publicKey === "string") return res.publicKey;
-  return String(res ?? "");
-}
-
-async function walletCreateSignature(args: {
-  data: Uint8Array;
-  protocolID: WalletProtocol;
-  keyID: KeyIDStringUnder800Bytes;
-  counterparty: WalletCounterparty;
-}): Promise<Uint8Array> {
-  const payload = {
-    data: Array.from(args.data),
-    protocolID: args.protocolID,
-    keyID: args.keyID,
-    counterparty: args.counterparty,
-  };
-  btmsDebug("wallet.createSignature payload:", {
-    protocolID: payload.protocolID,
-    keyID: payload.keyID,
-    counterparty: payload.counterparty,
-    dataLen: payload.data.length,
-  });
-  // Call through "any" so we are not constrained by the stricter SDK typings
-  const res: any = await (walletClient as any).createSignature(payload as any);
-  if (res instanceof Uint8Array) return res;
-  if (res && Array.isArray(res.signature))
-    return Uint8Array.from(res.signature);
-  if (Array.isArray(res)) return Uint8Array.from(res);
-  return new Uint8Array();
-}
-
-/* ------------------------------------------------------------------ */
-/* overlay client */
-/* ------------------------------------------------------------------ */
-class OverlayClient {
-  baseUrl: string;
-  apiKey?: string;
-  constructor(baseUrl: string, apiKey?: string) {
-    this.baseUrl = baseUrl.replace(/\/+$/, "");
-    this.apiKey = apiKey;
-  }
-  private buildHeaders(extra?: Record<string, string>) {
-    return {
-      ...(this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {}),
-      ...(extra || {}),
-    };
-  }
-  async get<T = unknown>(path: string): Promise<T> {
-    const url = `${this.baseUrl}${path}`;
-    return await fetchJSON<T>(url, {
-      method: "GET",
-      headers: this.buildHeaders(),
-    });
-  }
-  async post<T = unknown>(path: string, body: unknown): Promise<T> {
-    const url = `${this.baseUrl}${path}`;
-    return await fetchJSON<T>(url, {
-      method: "POST",
-      headers: this.buildHeaders({ "Content-Type": "application/json" }),
-      body: JSON.stringify(body),
-    });
-  }
-}
-
-export interface LocalToken {
-  id: string;
-  assetId: string;
-  amount: SatoshiValue;
-  metadata?: Record<string, unknown> | string;
-}
-
-export function createLocalToken(
-  assetId: string,
-  amount: SatoshiValue,
-  metadata?: Record<string, unknown> | string,
-): LocalToken {
-  return {
-    id: makeId("localToken"),
-    assetId,
-    amount,
-    metadata,
-  };
-}
-
-export interface MarketplaceItem {
-  assetId: string;
-  amount: SatoshiValue;
-  seller: string;
-  description?: string;
-  desiredAssets?: Record<string, number>;
-  metadata?: string;
-}
-
-export async function listMarketplaceItems(
-  client: OverlayClient,
-  query: { findAll?: boolean; seller?: string } = { findAll: true },
-): Promise<MarketplaceItem[]> {
-  const res = await client.post<{ items: MarketplaceItem[] }>("/lookup", {
-    provider: "marketplace",
-    query,
-  });
-  return (res as unknown as MarketplaceItem[]).map((x: any) => x);
-}
-
-export async function createMarketplaceItem(
-  client: OverlayClient,
-  item: MarketplaceItem,
-): Promise<{ status: string }> {
-  const res = await client.post<{ status: string }>("/submit", {
-    ...item,
-    provider: "marketplace",
-  });
-  return res;
-}
-
-export interface DecodedLinkage {
-  prover: string;
-  derivedKey: string;
-}
-
-export function decodeLinkageSimple(
-  prover: string,
-  linkageScalarHex: string,
-): DecodedLinkage {
-  return {
-    prover,
-    derivedKey: linkageScalarHex,
-  };
-}
-
-const minimalEncoding = (buf: any): string => {
-  if (!(buf instanceof Buffer)) {
-    buf = Buffer.from(buf);
-  }
-  if (buf.byteLength === 0) {
-    return "00";
-  }
-  if (buf.byteLength === 1 && buf[0] === 0) {
-    return "00";
-  }
-  if (buf.byteLength === 1 && buf[0] > 0 && buf[0] <= 16) {
-    return (0x50 + buf[0]).toString(16);
-  }
-  if (buf.byteLength === 1 && buf[0] === 0x81) {
-    return "4f";
-  }
-  if (buf.byteLength <= 75) {
-    return Buffer.concat([Buffer.from([buf.byteLength]), buf]).toString("hex");
-  }
-  if (buf.byteLength <= 255) {
-    return Buffer.concat([
-      Buffer.from([0x4c]),
-      Buffer.from([buf.byteLength]),
-      buf,
-    ]).toString("hex");
-  }
-  if (buf.byteLength <= 65535) {
-    const len = Buffer.alloc(2);
-    len.writeUInt16LE(buf.byteLength);
-    return Buffer.concat([Buffer.from([0x4d]), len, buf]).toString("hex");
-  }
-  const len = Buffer.alloc(4);
-  len.writeUInt32LE(buf.byteLength);
-  return Buffer.concat([Buffer.from([0x4e]), len, buf]).toString("hex");
-};
-
-const OP_DROP = "75";
-const OP_2DROP = "6d";
-
-/* ------------------------------------------------------------------ */
-/* token lock / unlock */
-/* ------------------------------------------------------------------ */
-class BTMSToken {
-  async lock(
-    protocolID: WalletProtocol,
-    keyID: KeyIDStringUnder800Bytes,
-    counterparty: WalletCounterparty,
-    assetId: string,
-    amount: SatoshiValue,
-    metadata: string,
-    forSelf = false,
-  ): Promise<any> {
-    let publicKey: PubKeyHex | null = null;
-    try {
-      publicKey = (await walletGetPublicKey({
-        protocolID: protocolID,
-        keyID,
-        counterparty,
-        forSelf,
-      })) as PubKeyHex;
-    } catch {
-      // ignore
-    }
-    let lockPart: string;
-    if (publicKey) {
-      lockPart = new LockingScript([
-        { op: publicKey.length / 2, data: Utils.toArray(publicKey, "hex") },
-        { op: OP.OP_CHECKSIG },
-      ]).toHex();
-    } else {
-      lockPart = "51";
-    }
-    const fields: Array<string | Uint8Array> = [
-      assetId ?? "",
-      String(amount ?? 0),
-      metadata ?? "",
-    ];
-    try {
-      const dataToSign = Buffer.concat(
-        fields.map((x) =>
-          typeof x === "string" ? Buffer.from(x) : Buffer.from(x),
-        ) as readonly Uint8Array[],
-      );
-      const signature = await walletCreateSignature({
-        data: Uint8Array.from(dataToSign),
-        protocolID,
-        keyID,
-        counterparty,
-      });
-      if (signature && signature.length) {
-        fields.push(signature);
-      }
-    } catch {
-      // ignore
-    }
-    const pushPart = fields.reduce((acc, el) => acc + minimalEncoding(el), "");
-    let dropPart = "";
-    let undropped = fields.length;
-    while (undropped > 1) {
-      dropPart += OP_2DROP;
-      undropped -= 2;
-    }
-    if (undropped) {
-      dropPart += OP_DROP;
-    }
-    return LockingScript.fromHex(`${lockPart}${pushPart}${dropPart}`);
-  }
-  unlock = (
-    protocolID: WalletProtocol,
-    keyID: KeyIDStringUnder800Bytes,
-    counterparty: WalletCounterparty,
-    sourceTXID?: TXIDHexString,
-    sourceSatoshis?: SatoshiValue,
-    lockingScript?: any,
-    signOutputs: "all" | "none" | "single" = "all",
-    anyoneCanPay = false,
-  ) => {
-    return {
-      sign: async (tx: any, inputIndex: number): Promise<any> => {
-        const input = tx.inputs[inputIndex];
-        const otherInputs = tx.inputs.filter(
-          (_: any, index: number) => index !== inputIndex,
-        );
-        sourceTXID = input.sourceTXID
-          ? input.sourceTXID
-          : (input.sourceTransaction?.id("hex") as string);
-        if (!sourceTXID) {
-          throw new Error(
-            "The input sourceTXID or sourceTransaction is required for transaction signing.",
-          );
-        }
-        sourceSatoshis ||=
-          input.sourceTransaction?.outputs[input.sourceOutputIndex].satoshis;
-        if (!sourceSatoshis && sourceSatoshis !== 0) {
-          throw new Error(
-            "The sourceSatoshis or input sourceTransaction is required for transaction signing.",
-          );
-        }
-        lockingScript ||=
-          input.sourceTransaction?.outputs[input.sourceOutputIndex]
-            .lockingScript;
-        if (!lockingScript) {
-          throw new Error(
-            "The lockingScript or input sourceTransaction is required for transaction signing.",
-          );
-        }
-        let signatureScope = TransactionSignature.SIGHASH_FORKID;
-        if (signOutputs === "all") {
-          signatureScope |= TransactionSignature.SIGHASH_ALL;
-        }
-        if (signOutputs === "none") {
-          signatureScope |= TransactionSignature.SIGHASH_NONE;
-        }
-        if (signOutputs === "single") {
-          signatureScope |= TransactionSignature.SIGHASH_SINGLE;
-        }
-        if (anyoneCanPay) {
-          signatureScope |= TransactionSignature.SIGHASH_ANYONECANPAY;
-        }
-        const preimage = TransactionSignature.format({
-          sourceTXID,
-          sourceOutputIndex: input.sourceOutputIndex,
-          sourceSatoshis: sourceSatoshis as number,
-          transactionVersion: tx.version,
-          otherInputs,
-          inputIndex,
-          outputs: tx.outputs,
-          inputSequence: input.sequence ?? 0xffffffff,
-          subscript: lockingScript,
-          lockTime: tx.lockTime,
-          scope: signatureScope,
-        });
-        const preimageHash = Hash.sha256(preimage);
-        const SDKSignature = await walletCreateSignature({
-          data: Uint8Array.from(preimageHash),
-          protocolID,
-          keyID,
-          counterparty,
-        });
-        const rawSignature = Signature.fromDER([...SDKSignature]);
-        const sig = new TransactionSignature(
-          rawSignature.r,
-          rawSignature.s,
-          signatureScope,
-        );
-        const sigForScript = sig.toChecksigFormat();
-        return new UnlockingScript([
-          { op: sigForScript.length, data: sigForScript },
-        ]);
-      },
-      estimateLength: async () => 72,
-    };
-  };
-}
-
-/* ------------------------------------------------------------------ */
-/* funding token (unchanged logic, types aligned) */
-/* ------------------------------------------------------------------ */
-class BTMSFundingToken {
-  async lock(
-    protocolID: WalletProtocol,
-    keyID: KeyIDStringUnder800Bytes,
-    counterparty: WalletCounterparty,
-  ): Promise<any> {
-    const fundingPublicKeyString = await walletGetPublicKey({
-      protocolID: protocolID,
-      keyID,
-      counterparty,
-    });
-    const fundingAddress = PublicKey.fromString(
-      fundingPublicKeyString,
-    ).toAddress();
-    return new P2PKH().lock(fundingAddress);
-  }
-  unlock = (
-    protocolID: WalletProtocol,
-    keyID: KeyIDStringUnder800Bytes,
-    counterparty: WalletCounterparty,
-  ) => {
-    return {
-      sign: async (tx: any, inputIndex: number): Promise<any> => {
-        const input = tx.inputs[inputIndex];
-        const otherInputs = tx.inputs.filter(
-          (_: any, index: number) => index !== inputIndex,
-        );
-        const sourceTXID = input.sourceTXID
-          ? input.sourceTXID
-          : (input.sourceTransaction?.id("hex") as string);
-        if (!sourceTXID) {
-          throw new Error(
-            "The input sourceTXID or sourceTransaction is required for transaction signing.",
-          );
-        }
-        const sourceSatoshis =
-          input.sourceTransaction?.outputs[input.sourceOutputIndex].satoshis;
-        if (!sourceSatoshis && sourceSatoshis !== 0) {
-          throw new Error(
-            "The sourceSatoshis or input sourceTransaction is required for transaction signing.",
-          );
-        }
-        const lockingScript =
-          input.sourceTransaction?.outputs[input.sourceOutputIndex]
-            .lockingScript;
-        if (!lockingScript) {
-          throw new Error(
-            "The lockingScript or input sourceTransaction is required for transaction signing.",
-          );
-        }
-        const signatureScope =
-          TransactionSignature.SIGHASH_FORKID |
-          TransactionSignature.SIGHASH_ALL;
-        const preimage = TransactionSignature.format({
-          sourceTXID,
-          sourceOutputIndex: input.sourceOutputIndex,
-          sourceSatoshis: sourceSatoshis as number,
-          transactionVersion: tx.version,
-          otherInputs,
-          inputIndex,
-          outputs: tx.outputs,
-          inputSequence: input.sequence ?? 0xffffffff,
-          subscript: lockingScript,
-          lockTime: tx.lockTime,
-          scope: signatureScope,
-        });
-        const preimageHash = Hash.sha256(preimage);
-        const SDKSignature = await walletCreateSignature({
-          data: Uint8Array.from(preimageHash),
-          protocolID,
-          keyID,
-          counterparty,
-        });
-        const rawSignature = Signature.fromDER([...SDKSignature]);
-        const sig = new TransactionSignature(
-          rawSignature.r,
-          rawSignature.s,
-          signatureScope,
-        );
-        const sigForScript = sig.toChecksigFormat();
-        const publicKeyString = await walletGetPublicKey({
-          protocolID: protocolID,
-          keyID,
-          counterparty,
-          forSelf: true,
-        });
-        return new UnlockingScript([
-          { op: sigForScript.length, data: sigForScript },
-          {
-            op: publicKeyString.length / 2,
-            data: Utils.toArray(publicKeyString, "hex"),
-          },
-        ]);
-      },
-      estimateLength: async () => 106,
-    };
-  };
-}
-
-/* ------------------------------------------------------------------ */
-/* data shapes */
-/* ------------------------------------------------------------------ */
-export interface Asset {
-  assetId: string;
-  balance: SatoshiValue;
-  name?: string;
-  iconURL?: string;
-  metadata?: string;
-  incoming?: boolean;
-  incomingAmount?: SatoshiValue;
-  new?: boolean;
-}
 
 /**
- * HMR-safe global cache
- * we stash it on globalThis so every time webpack reloads this file
- * we don’t lose the last snapshot and re-log the same “count: 0”.
+ * Verify that the possibly undefined value currently has a value.
  */
-const GLOBAL_CACHE_KEY = "__btmsGlobalCacheNW__";
-type BTMSGlobalCache = {
-  lastAssetSnapshot: Asset[];
-  lastAssetFetchMs: number;
-  /**
-   * <- NEW: once we’ve tried fetching at least once (even if it was empty or permissiony)
-   * we set this to true so future calls can stop hammering the wallet every 30s
-   * when there’s still nothing there.
-   */
-  hasFetchedOnce: boolean;
-};
-// Let TS know about our global cache slot
-declare global {
-  // Works in both browser and Node typings via globalThis
-  // eslint-disable-next-line no-var
-  var __btmsGlobalCacheNW__: BTMSGlobalCache | undefined;
-}
-const globalCache: BTMSGlobalCache = (() => {
-  if (typeof globalThis !== "undefined") {
-    if (!globalThis.__btmsGlobalCacheNW__) {
-      globalThis.__btmsGlobalCacheNW__ = {
-        lastAssetSnapshot: [],
-        lastAssetFetchMs: 0,
-        hasFetchedOnce: false,
-      } as BTMSGlobalCache;
-    }
-    return globalThis.__btmsGlobalCacheNW__ as BTMSGlobalCache;
-  }
-  return {
-    lastAssetSnapshot: [],
-    lastAssetFetchMs: 0,
-    hasFetchedOnce: false,
-  };
-})();
-// fallback values if globalThis isn’t available
-let __btmsLastAssetSnapshot: Asset[] = globalCache.lastAssetSnapshot;
-let __btmsLastAssetFetchMs = globalCache.lastAssetFetchMs;
-const ASSET_REFRESH_MS = 30_000; // 30 seconds
-
-export interface TokenForRecipient {
-  txid: TXIDHexString;
-  vout: number;
-  amount: SatoshiValue;
-  /** renamed from `envelope` */
-  beefPayload: CreateActionResult;
-  keyID: KeyIDStringUnder800Bytes;
-  lockingScript: HexString;
-}
-
-export interface SubmitResult {
-  status: "success";
-  topics: Record<string, number[]>;
-}
-
-export interface OverlaySearchResult {
-  inputs: string | null;
-  mapiResponses: string | null;
-  lockingScript: HexString;
-  proof: string | null;
-  rawTx: string;
-  satoshis: SatoshiValue;
-  txid: TXIDHexString;
-  vout: number;
-  beef?: number[];
-}
-
-export interface IncomingPayment {
-  txid: TXIDHexString;
-  vout: number;
-  lockingScript: HexString;
-  amount: SatoshiValue;
-  token: TokenForRecipient;
-  sender: string;
-  messageId: string;
-  keyID: KeyIDStringUnder800Bytes;
-  /** renamed from `envelope` */
-  beefPayload: CreateActionResult;
-}
-
-export interface OwnershipProof {
-  prover: string;
-  verifier: string;
-  assetId: string;
-  amount: SatoshiValue;
-  tokens: {
-    output: GetTransactionOutputResult;
-    linkage: SpecificKeyLinkageResult;
-  }[];
-}
-
-export interface MarketplaceEntry {
-  assetId: string;
-  amount: SatoshiValue;
-  seller: string;
-  description: string;
-  desiredAssets: Record<string, number>;
-  ownershipProof: OwnershipProof;
-  metadata: string;
-}
-
-export interface MarketplaceOffer {
-  buyerOffersAssetId: string;
-  buyerOffersamount: SatoshiValue;
-  buyerProof: OwnershipProof;
-  buyerPartialTX: string;
-  /** renamed from `buyerFundingEnvelope` */
-  buyerFundingBeefPayload: CreateActionResult | BeefPayload;
-  sellerEntry: MarketplaceEntry;
-  fundingkeyID: KeyIDStringUnder800Bytes;
-  messageId?: string;
-  rejected?: boolean;
-  isAsDesiredBySeller?: boolean;
-  desiredSellerkeyID?: KeyIDStringUnder800Bytes;
-  desiredSellerChangekeyID?: KeyIDStringUnder800Bytes;
-  desiredBuyerkeyID?: KeyIDStringUnder800Bytes;
-  desiredBuyerChangekeyID?: KeyIDStringUnder800Bytes;
-}
-
-interface BuyerOfferCustomInstructions {
-  buyerProof: OwnershipProof;
-  buyerOfferedAssetId: string;
-  buyerOfferedamount: SatoshiValue;
-  sellerEntry: MarketplaceEntry;
-  fundingkeyID: KeyIDStringUnder800Bytes;
-}
-
-/**
- * Helper args for the high-level sendBTMSToken(...) helper.
- * This wraps walletClient.createAction + btms.send so we always
- * carry an AtomicBEEF beefPayload end-to-end.
- */
-export interface SendBTMSTokenArgs {
-  recipient: string;
-  assetId: string;
-  amount: SatoshiValue;
-  keyID?: KeyIDStringUnder800Bytes;
-  messageBox?: string;
-  description?: string;
-  /**
-   * Exact CreateAction args to hand to walletClient.createAction.
-   * You build the inputs/outputs as usual in your UI and pass them here.
-   */
-  createActionArgs: any;
-  /**
-   * Optional vout index of the token output inside the created tx.
-   * Defaults to 0 if omitted.
-   */
-  tokenVout?: number;
-}
-
 function verifyTruthy<T>(v: T | null | undefined, description?: string): T {
-  if (v == null) throw new Error(description ?? "A truthy value is required.");
-  return v;
+  if (v == null) throw new Error(description ?? 'A truthy value is required.')
+  return v
 }
 
-/* ------------------------------------------------------------------ */
-/* message-box-client transport (now uses stub) */
-/* ------------------------------------------------------------------ */
-const DEFAULT_MESSAGEBOX_HOST = "https://messagebox.babbage.systems";
+function shortHex(hex?: string | null, len = 16): string {
+  if (!hex || typeof hex !== 'string') return String(hex)
+  const h = hex.toLowerCase()
+  return h.length <= len ? h : `${h.slice(0, len)}…(${h.length})`
+}
+
+function makeId(prefix = 'id'): string {
+  return `${prefix}_${Math.random().toString(36).slice(2, 10)}`
+}
+
+/**
+ * Global, optional, app-provided authenticated fetch.
+ */
+let activeAuthFetch: ((url: string, init?: RequestInit) => Promise<Response>) | null = null
+
+export function setBTMSAuthFetch(fn: (url: string, init?: RequestInit) => Promise<Response>) {
+  activeAuthFetch = fn
+}
+
+const DEFAULT_MESSAGEBOX_HOST = 'https://messagebox.babbage.systems'
 
 class MessageBoxTokenator {
-  private wallet: any;
-  private defaultBox: string;
-  private host: string;
-  private client: MessageBoxClient | null = null;
-  private initPromise: Promise<MessageBoxClient> | null = null;
-  constructor(wallet: any, defaultBox: string, host = DEFAULT_MESSAGEBOX_HOST) {
-    this.wallet = wallet;
-    this.defaultBox = defaultBox;
-    this.host = host;
+  private walletClient: WalletInterface
+  private defaultBox: string
+  private host: string
+  private client: MessageBoxClient | null = null
+  private initPromise: Promise<MessageBoxClient> | null = null
+
+  constructor(walletClient: WalletInterface, defaultBox: string, host = DEFAULT_MESSAGEBOX_HOST) {
+    this.walletClient = walletClient
+    this.defaultBox = defaultBox
+    this.host = host
   }
+
+  // --------------------------
+  // Types used internally
+  // --------------------------
+  private static isUint8Array(x: unknown): x is Uint8Array {
+    return x instanceof Uint8Array
+  }
+
+  private static isNumberArray(x: unknown): x is number[] {
+    return Array.isArray(x) && x.every(n => typeof n === 'number')
+  }
+
+  private static safeParseJSON(str: string): unknown | null {
+    try {
+      return JSON.parse(str)
+    } catch {
+      return null
+    }
+  }
+
+  // ---------------------------------------------------------
+  // Ensure underlying MessageBoxClient is initialized
+  // ---------------------------------------------------------
   private async ensureClient(): Promise<MessageBoxClient> {
-    if (this.client) return this.client;
+    if (this.client) return this.client
+
     if (!this.initPromise) {
       if (BTMS_DEBUG) {
-        btmsDebug("MessageBoxTokenator: creating MessageBoxClient…", {
+        btmsDebug('MessageBoxTokenator: creating MessageBoxClient…', {
           host: this.host,
-          box: this.defaultBox,
-        });
+          box: this.defaultBox
+        })
       }
-      // tolerate older/newer wallet-client versions
-      const net = await (walletClient as any).getNetwork?.();
-      const networkPreset = net?.network || "mainnet";
+
+      const net = await this.walletClient.getNetwork({})
+      const networkPreset = net?.network ?? 'mainnet'
+
       this.initPromise = (async () => {
         const client = new MessageBoxClient({
           host: this.host,
-          networkPreset,
-          walletClient: this.wallet,
+
+          walletClient: this.walletClient,
+
           enableLogging: true,
-        });
-        await client.init();
+          networkPreset
+        })
+
+        await client.init()
+
         if (BTMS_DEBUG) {
-          btmsDebug("MessageBoxTokenator: client.init() done");
+          btmsDebug('MessageBoxTokenator: client.init() done')
         }
-        this.client = client;
-        return client;
-      })();
+
+        this.client = client
+        return client
+      })()
     }
-    return this.initPromise;
+
+    return this.initPromise
   }
-  async sendMessage(args: {
-    recipient: string;
-    messageBox?: string;
-    body: any;
-  }): Promise<void> {
-    const client = await this.ensureClient();
-    const { recipient, messageBox, body } = args;
-    const box = messageBox || this.defaultBox;
-    // Always send a string to Message Box
-    const payload = typeof body === "string" ? body : JSON.stringify(body);
-    // Helper to safely parse JSON strings for logging only
-    const safeParse = (s: string) => {
-      try {
-        return JSON.parse(s);
-      } catch {
-        return null;
-      }
-    };
-    // Compute beef length without touching the string 'payload'
-    const bodyObj: any = typeof body === "string" ? safeParse(body) : body;
-    const beefArr: any =
-      (bodyObj && Array.isArray(bodyObj?.beef) && bodyObj.beef) ||
-      (bodyObj && Array.isArray(bodyObj?.token?.beef) && bodyObj.token.beef) ||
-      null;
-    const beefLen = Array.isArray(beefArr) ? beefArr.length : null;
+
+  // ---------------------------------------------------------
+  // Explicit init that BTMS can await
+  // ---------------------------------------------------------
+  async init(): Promise<void> {
     if (BTMS_DEBUG) {
-      btmsDebug("MessageBoxTokenator.sendMessage ->", {
+      btmsDebug('MessageBoxTokenator.init(): ensuring MessageBoxClient is ready', {
+        defaultBox: this.defaultBox
+      })
+    }
+
+    await this.ensureClient()
+  }
+
+  // -------------------------------------------------------
+  // Strongly typed sendMessage
+  // -------------------------------------------------------
+  async sendMessage(args: { recipient: string; messageBox?: string; body: string }): Promise<void> {
+    const client = await this.ensureClient()
+    const { recipient, messageBox, body } = args
+    const box = messageBox ?? this.defaultBox
+
+    const payload: string = body
+    const bodyObj = MessageBoxTokenator.safeParseJSON(body)
+
+    let beefLen: number | null = null
+
+    if (bodyObj && typeof bodyObj === 'object') {
+      const maybeBeef = (bodyObj as { beef?: unknown }).beef ?? (bodyObj as { token?: { beef?: unknown } }).token?.beef
+
+      if (MessageBoxTokenator.isNumberArray(maybeBeef)) beefLen = maybeBeef.length
+      if (MessageBoxTokenator.isUint8Array(maybeBeef)) beefLen = maybeBeef.length
+    }
+
+    if (BTMS_DEBUG) {
+      btmsDebug('MessageBoxTokenator.sendMessage ->', {
         recipient,
         box,
-        bodyPreview:
-          typeof payload === "string"
-            ? payload.slice(0, 160)
-            : String(typeof payload),
-        beefLen,
-      });
+        bodyPreview: payload.slice(0, 160),
+        beefLen
+      })
     }
-    const t0 = Date.now();
+
+    const t0 = Date.now()
+
     try {
-      const resp: any = await client.sendMessage({
+      const resp = await client.sendMessage({
         recipient,
         messageBox: box,
-        body: payload,
-      });
-      btmsDebug("[Tokenator] sendMessage OK", {
+        body: payload
+      })
+
+      btmsDebug('[MessageBoxTokenator] sendMessage OK', {
         ms: Date.now() - t0,
-        hasResp: resp != null,
-        keys: resp ? Object.keys(resp) : [],
-        status: resp?.status ?? "unknown",
-        id: resp?.id ?? resp?.messageId ?? resp?._id ?? null,
-        beefLen,
-      });
-    } catch (e: any) {
-      btmsDebug("[Tokenator] sendMessage ERROR", {
+        hasResp: !!resp,
+        status: resp.status,
+        id: resp.messageId,
+        beefLen
+      })
+    } catch (e) {
+      const err = e as Error
+      btmsDebug('[MessageBoxTokenator] sendMessage ERROR', {
         ms: Date.now() - t0,
-        message: e?.message,
-        stackTop: String(e?.stack || "")
-          .split("\n")
-          .slice(0, 3)
-          .join(" | "),
-      });
-      throw e;
+        message: err.message,
+        stackTop: (err.stack ?? '').split('\n').slice(0, 3).join(' | ')
+      })
+      throw err
     }
   }
+
+  // -------------------------------------------------------
+  // listMessages
+  // -------------------------------------------------------
   async listMessages(args: { messageBox?: string }) {
-    const client = await this.ensureClient();
-    const box = args.messageBox || this.defaultBox;
-    const msgs = await client.listMessages({ messageBox: box });
-    return msgs;
+    const client = await this.ensureClient()
+    const box = args.messageBox ?? this.defaultBox
+    return client.listMessages({ messageBox: box })
   }
+
+  // -------------------------------------------------------
+  // acknowledge single
+  // -------------------------------------------------------
   async acknowledgeMessage(args: { messageIds: string[] }): Promise<void> {
-    return this.acknowledgeMessages(args);
+    return this.acknowledgeMessages(args)
   }
+
+  // -------------------------------------------------------
+  // acknowledge multiple
+  // -------------------------------------------------------
   async acknowledgeMessages(args: { messageIds: string[] }): Promise<void> {
-    const client = await this.ensureClient();
-    if (!args.messageIds || !args.messageIds.length) return;
-    await client.acknowledgeMessage({ messageIds: args.messageIds });
+    const client = await this.ensureClient()
+    if (!args.messageIds.length) return
+
+    await client.acknowledgeMessage({ messageIds: args.messageIds })
   }
 }
 
-/* ------------------------------------------------------------------ */
-/* main BTMS class */
-/* ------------------------------------------------------------------ */
+export interface Asset {
+  assetId: string
+  balance: number
+  name?: string
+  iconURL?: string
+  metadata?: string
+  incoming?: boolean
+  incomingAmount?: number
+  new?: boolean
+  /**
+   * TRUE when a MessageBox entry exists awaiting acceptance
+   * for this specific assetId.
+   *
+   * This is used solely for showing/hiding the Receive button.
+   */
+  hasPendingIncoming: boolean
+}
+
+// Minimal “old-world output” shape so OwnershipProof compiles
+export interface GetTransactionOutputResult {
+  txid: TXIDHexString
+  vout: number
+  lockingScript: HexString
+  satoshis: SatoshiValue
+  basket?: BasketStringUnder300Bytes
+}
+
+// Minimal linkage shape we actually care about
+export interface SpecificKeyLinkageResult {
+  assetId: string
+  amount: number
+}
+
+// NEW-WORLD Token object delivered to recipients
+export interface TokenForRecipient {
+  txid: TXIDHexString
+  vout: number
+
+  /**
+   * Logical token quantity (e.g. 4 CAT), not satoshis.
+   */
+  amount: number
+
+  /**
+   * Underlying satoshi value in the UTXO.
+   */
+  satoshis: SatoshiValue
+
+  /**
+   * Canonical BEEF form (AtomicBEEF = Uint8Array).
+   * We normalise any incoming BEEF to this at the edges.
+   */
+  beef: AtomicBEEF
+
+  /**
+   * NEW — receiver prefers this plain number[] form.
+   * Used by listIncomingPayments() via beefPayload ?? beef.
+   */
+  beefPayload?: number[]
+
+  /**
+   * Branded key ID from WalletInterface.
+   */
+  keyID: KeyIDStringUnder800Bytes
+
+  /**
+   * Always a HEX string inside BTMS.
+   */
+  lockingScript: HexString
+}
+
+export interface SubmitResult {
+  status: 'success'
+  topics: Record<string, number[]>
+}
+
+export interface OverlaySearchResult {
+  inputs: string | null
+  mapiResponses: string | null
+  lockingScript: HexString
+  proof: string | null
+  rawTx: string
+  satoshis: SatoshiValue
+  txid: TXIDHexString
+  vout: number
+}
+
+export interface IncomingPayment {
+  tx: AtomicBEEF
+  txid: TXIDHexString
+  vout: number
+  lockingScript: HexString
+  amount: number
+  satoshis: SatoshiValue
+  sender: WalletCounterparty
+  messageId?: string
+  keyID: KeyIDStringUnder800Bytes
+  assetId: string
+  // NEW — used for UI + internal fixes
+  stillPending?: boolean
+}
+
+export interface OwnershipProof {
+  prover: WalletCounterparty
+  verifier: WalletCounterparty
+  assetId: string
+  amount: number
+  tokens: {
+    output: GetTransactionOutputResult
+    linkage: SpecificKeyLinkageResult
+  }[]
+}
+
+export interface MarketplaceEntry {
+  assetId: string
+  amount: number
+  seller: WalletCounterparty
+  description: DescriptionString5to50Bytes
+  desiredAssets: Record<string, number>
+  ownershipProof: OwnershipProof
+  metadata: string
+}
+
+// NEW-WORLD MINIMAL MarketplaceOffer (no EnvelopeApi)
+export interface MarketplaceOffer {
+  buyerOffersAssetId: string
+  buyerOffersAmount: number
+  buyerProof: OwnershipProof
+  buyerPartialTX: string // keep as string for now; no BEEF needed yet
+  sellerEntry: MarketplaceEntry
+  fundingKeyID: KeyIDStringUnder800Bytes
+  messageId?: string
+  rejected?: boolean
+  isAsDesiredBySeller?: boolean
+}
+
+interface BuyerOfferCustomInstructions {
+  buyerProof: OwnershipProof
+  buyerOfferedAssetId: string
+  buyerOfferedAmount: number
+  sellerEntry: MarketplaceEntry
+  fundingKeyID: KeyIDStringUnder800Bytes
+}
+
+export interface BTMSWalletOutput extends WalletOutput {
+  tx?: number // actually AtomicBEEF binary as number[]
+  outputIndex?: number // new-world equivalent of vout
+  vout?: number // fallback for older outputs
+  customInstructions?: string // JSON string from createAction
+}
+
+/**
+ * BTMSToken
+ *
+ * This class is the canonical place for building and unlocking
+ * BTMS PushDrop token scripts.
+ *
+ * STRICT FIELD ORDER:
+ *   0: assetId
+ *   1: amount
+ *   2: op               ("ISSUE" | "TRANSFER")
+ *   3: metadata JSON
+ *   4: signature        (always present; "" allowed)
+ */
+export class BTMSToken {
+  private walletClient: WalletInterface
+
+  constructor(walletClient: WalletClient = new WalletClient()) {
+    this.walletClient = walletClient
+  }
+
+  async lock(
+    protocolID: WalletProtocol,
+    keyID: string,
+    counterparty: WalletCounterparty,
+    assetId: string,
+    amount: number,
+    metadata: string,
+    op: 'ISSUE' | 'TRANSFER' = 'ISSUE',
+    signature = '',
+    forSelf = true
+  ): Promise<LockingScript> {
+    const callId = makeDebugCallId('BTMSToken.lock')
+    btmsDebug(`${callId}: START`, {
+      assetId,
+      amount,
+      op,
+      forSelf,
+      metadataLength: metadata.length,
+      signaturePresent: signature.length > 0
+    })
+
+    // -----------------------------------------------------
+    // 1. STRICT 5-FIELD SCHEMA
+    // -----------------------------------------------------
+    const fields: number[][] = [
+      Utils.toArray(assetId, 'utf8'),
+      Utils.toArray(String(amount), 'utf8'),
+      Utils.toArray(op, 'utf8'),
+      Utils.toArray(metadata, 'utf8'),
+      Utils.toArray(signature, 'utf8') // strict 5th field
+    ]
+
+    btmsDebug(`${callId}: fields (string form)`, {
+      field0: assetId,
+      field1: String(amount),
+      field2: op,
+      field3: metadata,
+      field4SignatureLength: signature.length
+    })
+
+    // -----------------------------------------------------
+    // 2. Build PushDrop locking script
+    // -----------------------------------------------------
+    const pushdrop = new PushDrop(this.walletClient)
+
+    const lockScript = await pushdrop.lock(fields, protocolID, keyID, counterparty, forSelf)
+
+    const lockingScriptHex = lockScript.toHex()
+    btmsDebug(`${callId}: lockingScript hex`, {
+      lockingScriptHexPreview: lockingScriptHex.slice(0, 80) + '...'
+    })
+
+    btmsDebug(`${callId}: END — returning lockingScript`)
+    return lockScript
+  }
+
+  unlock(protocolID: WalletProtocol, keyID: string, counterparty: WalletCounterparty) {
+    return new PushDrop(this.walletClient).unlock(protocolID, keyID, counterparty)
+  }
+}
+
+/**
+ * BTMSFundingToken
+ *
+ * A minimal new-world funding output:
+ * - Lock = simple P2PKH
+ * - Unlock = use PushDrop.unlock() with wallet keys
+ *
+ * This mirrors the hello-tokens pattern exactly.
+ */
+export class BTMSFundingToken {
+  private walletClient: WalletInterface
+
+  constructor(walletClient: WalletInterface = new WalletClient()) {
+    this.walletClient = walletClient
+  }
+
+  /**
+   * Create a P2PKH locking script for a fee-funding UTXO.
+   * Always returns HEX.
+   */
+  async lock(protocolID: WalletProtocol, keyID: string, counterparty: WalletCounterparty): Promise<LockingScript> {
+    const { publicKey } = await this.walletClient.getPublicKey({
+      protocolID,
+      keyID,
+      counterparty
+    })
+
+    const addr = PublicKey.fromString(publicKey).toAddress()
+
+    // Standard blockchain funding output
+    return new P2PKH().lock(addr)
+  }
+
+  /**
+   * Unlocker for the funding UTXO.
+   * Uses PushDrop.unlock(), same as hello-tokens.
+   */
+  unlock(protocolID: WalletProtocol, keyID: string, counterparty: WalletCounterparty) {
+    // PushDrop.unlock works for ANY single-sig BSV script
+    return new PushDrop(this.walletClient).unlock(protocolID, keyID, counterparty)
+  }
+}
+
 export class BTMS {
-  tokenator: MessageBoxTokenator;
-  tokensMessageBox: string;
-  marketplaceMessageBox: string;
-  protocolID: WalletProtocol;
-  basket: BasketStringUnder300Bytes;
-  tokenTopic: string;
-  satoshis: SatoshiValue;
-  privateKey: string | undefined;
-  marketplaceTopic: string;
-  private requester: (url: string, init?: RequestInit) => Promise<Response>;
-  private instanceId: string;
+  walletClient: WalletClient
+  satoshis: SatoshiValue
+  privateKey: string | undefined
+  marketplaceTopic: string
+
+  // --------------------------------------------------
+  // NEW-WORLD BTMS v2 state
+  // --------------------------------------------------
+  private requester: (url: string, init?: RequestInit) => Promise<Response>
+  basketPrefix: BasketStringUnder300Bytes = BASKET_PREFIX
+  private currentIdentityKey: string | null = null
+
+  // ---- Incoming Payment Cache Controls ----
+
+  private _lastIncomingRun = 0
+  private _lastIncomingResult: IncomingPayment[] | null = null
+
+  private _incomingInFlight: Promise<void> | null = null
+
+  // ---- Wallet Overload Detection State ----
+  private basketLastCount: Record<string, number> = {}
+  private basketOverload: Record<string, number> = {}
+  private setAssetsCallback?: (assets: Asset[]) => void
+
+  tokenator: MessageBoxTokenator
+
+  tokensMessageBox: string
+  marketplaceMessageBox: string
+
+  protocolID: WalletProtocol
+  protocolKeyID: KeyIDStringUnder800Bytes
+  basket: BasketStringUnder300Bytes
+  tokenTopic: string
+
+  private instanceId: string
+  currentIdentity?: string
+
+  // ------------------------------------------------------------
+  // StrictMode suppression fields (React 18 dev only)
+  // ------------------------------------------------------------
+
+  // ---- Wallet Overload Detection State ----
+  private basketOverloadHits: Record<string, number> = {}
+
+  async initAfterConstructor(): Promise<void> {
+    const callId = makeDebugCallId('BTMS-startup')
+    btmsDebug(`${callId}: waiting for wallet...`)
+    await this.waitForWalletReady(callId)
+    btmsDebug(`${callId}: wallet ready`)
+  }
+
+  private async waitForWalletReady(callId: string): Promise<void> {
+    await this.waitForTransportReady(callId)
+    await this.waitForIdentityStable(callId)
+  }
+
+  private async waitForIdentityStable(callId: string): Promise<void> {
+    const MAX_RETRIES = 40
+    const RETRY_MS = 150
+
+    let lastKey: string | null = null
+    let stableCount = 0
+
+    for (let i = 0; i < MAX_RETRIES; i++) {
+      try {
+        const { publicKey } = await this.walletClient.getPublicKey({
+          identityKey: true
+        })
+
+        if (typeof publicKey === 'string' && publicKey.length > 10) {
+          if (lastKey === publicKey) {
+            stableCount++
+            if (stableCount >= 3) {
+              btmsDebug(`${callId}: identity STABLE`, { publicKey })
+              return
+            }
+          } else {
+            lastKey = publicKey
+            stableCount = 1
+          }
+        }
+      } catch (err) {
+        // permitted: wallet still switching
+        stableCount = 0
+        lastKey = null
+      }
+
+      await new Promise(r => setTimeout(r, RETRY_MS))
+    }
+
+    throw new Error(`${callId}: identity never stabilised`)
+  }
+
+  private async waitForTransportReady(callId: string): Promise<void> {
+    for (let i = 0; i < 20; i++) {
+      try {
+        const v = await this.walletClient.getVersion()
+        if (v && v.version) return
+      } catch {}
+      await new Promise(r => setTimeout(r, 150))
+    }
+    throw new Error(`${callId}: wallet transport not ready`)
+  }
+
+  private getRandomKeyID(): string {
+    return '1'
+    // Browser-safe, cryptographically strong
+    // return crypto.randomUUID().replace(/-/g, "");
+  }
+
+  private decodeBTMSToken(scriptHex: string) {
+    const callId = makeDebugCallId('decodeBTMSToken')
+
+    try {
+      const decoded = PushDrop.decode(LockingScript.fromHex(scriptHex))
+
+      // PushDrop.decode returns number[][]
+      const rawFields: number[][] = decoded.fields
+
+      btmsDebug(`${callId}: RAW FIELD INFO`, {
+        fieldCount: rawFields.length,
+        fieldLengths: rawFields.map(arr => arr.length)
+      })
+
+      // Convert number[] → UTF-8 string
+      const fields: string[] = rawFields.map(arr => Utils.toUTF8(arr))
+
+      btmsDebug(`${callId}: UTF8 FIELDS`, { fields })
+
+      // BTMS v2 requires app-level:
+      //   [assetId, amount, op, metadataJson, signature]
+      // Metanet client then appends its own signature as a 6th field.
+      if (fields.length !== 5 && fields.length !== 6) {
+        btmsDebug(`${callId}: INVALID — unexpected fieldCount`, {
+          fieldCount: fields.length
+        })
+        return { valid: false as const }
+      }
+
+      const [assetId, amountStr, op, metadataJson, signatureField, walletSigField] = fields
+
+      if (walletSigField !== undefined) {
+        btmsDebug(`${callId}: WALLET SIGNATURE FIELD DETECTED`, {
+          walletSigPreview: walletSigField.slice(0, 32)
+        })
+      }
+
+      const amount = Number(amountStr)
+      if (!Number.isFinite(amount) || amount <= 0) {
+        btmsDebug(`${callId}: INVALID — bad amount`, { amountStr, amount })
+        return { valid: false as const }
+      }
+
+      if (op !== 'ISSUE' && op !== 'TRANSFER') {
+        btmsDebug(`${callId}: INVALID — unsupported op`, { op })
+        return { valid: false as const }
+      }
+
+      const metadata = metadataJson && metadataJson.startsWith('{') ? metadataJson : '{}'
+
+      const signature = signatureField ?? ''
+
+      const result = {
+        valid: true as const,
+        assetId,
+        amount,
+        op,
+        metadata,
+        signature
+      }
+
+      btmsDebug(`${callId}: OK`, result)
+      return result
+    } catch (error) {
+      btmsDebug(`${callId}: THROW`, { error })
+      return { valid: false as const }
+    }
+  }
+
+  setActiveAsset(assetId: string) {
+    const basket: BasketStringUnder300Bytes = `${this.basketPrefix} ${assetId}`
+    this.basket = basket
+    btmsDebug(`BTMS active basket switched`, { basket, assetId })
+  }
+
   constructor(
-    tokensMessageBox = "tokens-box",
-    protocolID: WalletProtocol = [0, "tokens"],
-    basket: BasketStringUnder300Bytes = makeBasketId("tokens"),
-    tokensTopic = "tokens",
-    satoshis: SatoshiValue = 1,
+    walletClient: WalletClient,
+    tokensMessageBox = 'tokens-box',
+    protocolID: WalletProtocol = PROTOCOL_ID,
+    protocolKeyID: KeyIDStringUnder800Bytes = PROTOCOL_KEY_ID,
+    basket: BasketStringUnder300Bytes = INIT_BASKET,
+    tokensTopic = 'tokens',
+    satoshis: SatoshiValue = 1 as SatoshiValue,
     privateKey?: string,
-    marketplaceMessageBox = "marketplace",
-    marketplaceTopic = "marketplace",
+    marketplaceMessageBox = 'marketplace',
+    marketplaceTopic = 'marketplace'
   ) {
-    this.tokensMessageBox = tokensMessageBox;
-    this.protocolID = protocolID;
-    this.basket = makeBasketId(basket);
-    this.tokenTopic = tokensTopic;
-    this.satoshis = satoshis;
-    this.tokenator = new MessageBoxTokenator(walletClient, tokensMessageBox);
-    this.privateKey = privateKey;
-    this.marketplaceMessageBox = marketplaceMessageBox;
-    this.marketplaceTopic = marketplaceTopic;
-    this.requester = activeAuthFetch
-      ? (url, init) => activeAuthFetch!(url, init)
-      : (url, init) => fetch(url, init);
-    this.instanceId = makeId("btmsInstance");
-    btmsDebug("constructor called", {
+    this.walletClient = walletClient
+    this.tokensMessageBox = tokensMessageBox
+    this.protocolID = protocolID
+    this.protocolKeyID = protocolKeyID
+    this.basket = basket
+    this.tokenTopic = tokensTopic
+    this.satoshis = satoshis
+    this.privateKey = privateKey
+
+    // ------------------------------------------------------------
+    // FIX: Correct v2 MessageBoxTokenator construction
+    // ------------------------------------------------------------
+    this.tokenator = new MessageBoxTokenator(this.walletClient, this.tokensMessageBox)
+
+    this.marketplaceMessageBox = marketplaceMessageBox
+    this.marketplaceTopic = marketplaceTopic
+
+    // new-world authFetch requester
+    this.requester = activeAuthFetch ? (url, init) => activeAuthFetch!(url, init) : (url, init) => fetch(url, init)
+
+    this.instanceId = makeId('btmsInstance')
+
+    btmsDebug('constructor called', {
       protocolID: this.protocolID,
       instanceId: this.instanceId,
       source: BTMS_SOURCE_TAG,
-      stack: new Error("BTMS constructor stack").stack,
-    });
+      stack: new Error('BTMS constructor stack').stack
+    })
   }
-  async getPublicKey(args: {
-    identityKey?: boolean;
-    protocolID?: WalletProtocol;
-    keyID?: KeyIDStringUnder800Bytes;
-    counterparty?: WalletCounterparty;
-    forSelf?: boolean;
-  }): Promise<string> {
-    const normalized = {
-      ...args,
-      protocolID: args.protocolID ? args.protocolID : undefined,
-    };
-    return walletGetPublicKey(normalized);
+
+  public onAssetsChanged(cb: (assets: Asset[]) => void) {
+    this.setAssetsCallback = cb
   }
-  async listAssets(): Promise<Asset[]> {
-    const callId = makeDebugCallId("listAssets");
-    btmsDebug(`${callId}: start`, { instanceId: this.instanceId });
+
+  /**
+   * Always return HEX string for locking scripts.
+   * Accepts: hex string, number[], Uint8Array
+   */
+  private toLockingScriptHex(value: unknown, callId: string, context: string): HexString | null {
     try {
-      const now = Date.now();
-      const age = now - globalCache.lastAssetFetchMs;
-      /**
-       * NEW BEHAVIOR:
-       * if we have ever fetched once and the snapshot is still empty,
-       * just serve the empty snapshot forever (or until someone explicitly
-       * calls a “refresh”) so we don’t pester the wallet every 30s.
-       */
-      if (
-        globalCache.hasFetchedOnce &&
-        globalCache.lastAssetSnapshot.length === 0
-      ) {
-        btmsDebug(
-          `${callId}: serving EMPTY snapshot from GLOBAL cache (suppressing re-fetch)`,
-          {
-            ageMs: age,
-            count: 0,
-            instanceId: this.instanceId,
-          },
-        );
-        return [];
+      if (typeof value === 'string') {
+        return value as HexString
       }
-      // normal 30s cache
-      if (age < ASSET_REFRESH_MS) {
-        btmsDebug(`${callId}: serving from GLOBAL cache (even if empty)`, {
-          ageMs: age,
-          count: globalCache.lastAssetSnapshot.length,
-          instanceId: this.instanceId,
-        });
-        return globalCache.lastAssetSnapshot.map((a) => ({ ...a }));
-      } else {
-        btmsDebug(`${callId}: cache miss or stale`, {
-          ageMs: age,
-          hadSnapshot: globalCache.lastAssetSnapshot.length > 0,
-          refreshMs: ASSET_REFRESH_MS,
-          hasFetchedOnce: globalCache.hasFetchedOnce,
-        });
+
+      if (Array.isArray(value)) {
+        return Utils.toHex(value as number[]) as HexString
       }
-      const wallet: any = walletClient;
-      const assets = new Map<string, Asset>();
-      let bsvTotal: SatoshiValue = 0 as SatoshiValue;
-      let outs: WalletOutput[] = [];
-      let beefMap: Record<string, number[] | Uint8Array> | null = null;
-      if (typeof wallet.listOutputs === "function") {
-        const args = {
-          basket: this.basket,
-          limit: 200,
-          offset: 0,
-          include: "entire transactions",
-          includeCustomInstructions: true,
-          seekPermission: false,
-        } as ListOutputsArgs;
-        btmsDebug(`${callId}: calling wallet.listOutputs(...)`, {
-          args,
-          instanceId: this.instanceId,
-        });
-        try {
-          const res = (await wallet.listOutputs(args)) as ListOutputsResult & {
-            BEEF?: Record<string, number[] | Uint8Array>;
-            beef?: Record<string, number[] | Uint8Array>;
-          };
-          outs = Array.isArray(res.outputs) ? res.outputs : [];
-          beefMap = (res.BEEF || res.beef || null) as Record<
-            string,
-            number[] | Uint8Array
-          > | null;
-          btmsDebug(`${callId}: wallet.listOutputs OK`, {
-            returnedKeys: res ? Object.keys(res as any) : [],
-            count: outs.length,
-            hasBEEF: !!beefMap,
-            beefKeys: beefMap ? Object.keys(beefMap) : [],
-          });
-        } catch (err: any) {
-          btmsDebug(`${callId}: wallet.listOutputs FAILED`, {
-            message: err?.message,
-            name: err?.name,
-            stack: err?.stack,
-            looksLikePermission:
-              typeof err?.message === "string" && /perm/i.test(err.message),
-          });
-          // since we *attempted*, don’t let the UI keep hammering
-          globalCache.hasFetchedOnce = true;
-        }
-      } else {
-        btmsDebug(`${callId}: wallet has NO listOutputs`, {
-          walletKeys: Object.keys(wallet || {}),
-        });
-        // also mark tried
-        globalCache.hasFetchedOnce = true;
+
+      if (value instanceof Uint8Array) {
+        return Utils.toHex(Array.from(value)) as HexString
       }
-      btmsDebug(`${callId}: wallet returned outputs:`, {
-        count: outs.length,
-        basket: this.basket,
-        instanceId: this.instanceId,
-      });
-      let idx = 0;
-      for (const o of outs) {
-        idx += 1;
-        // support both new-world beefPayload (if present on the output)
-        const beefPayload = (o as any).beefPayload || null;
-        let scriptHex = extractLockingScriptFromWalletOutput(o);
-        const outpoint = (o as any).outpoint as string | undefined;
-        let voutIndex =
-          Number.isFinite((o as any).vout) && (o as any).vout >= 0
-            ? (o as any).vout
-            : 0;
-        let txidFromOutpoint: string | undefined;
-        // more robust outpoint parsing: txid.vout OR txid:vout
-        if (typeof outpoint === "string") {
-          const m = outpoint.match(/^([0-9a-fA-F]+)[\.\:](\d+)$/);
-          if (m) {
-            txidFromOutpoint = m[1];
-            const maybeVout = parseInt(m[2], 10);
-            if (Number.isFinite(maybeVout)) {
-              voutIndex = maybeVout;
-            }
-          }
-        }
-        const lockingScriptLen = scriptHex ? scriptHex.length : 0;
-        const hasBeefPayload = !!beefPayload;
-        const hasBeefMap = !!beefMap;
-        if (!scriptHex && BTMS_DEBUG) {
-          btmsDebug(
-            `${callId}: output #${idx} has no script in wallet output; will consider BEEF/customInstructions`,
-            {
-              instanceId: this.instanceId,
-              outpoint,
-              voutIndex,
-              hasBeefMap,
-              hasBeefPayload,
-              satoshis: (o as any).satoshis,
-            },
-          );
-        }
-        btmsDebug(`${callId}: output #${idx}`, {
-          satoshis: (o as any).satoshis,
-          voutIndex,
-          lockingScriptPreview: shortHex(scriptHex, 48),
-          lockingScriptLen,
-          hasBeefPayload,
-          instanceId: this.instanceId,
-        });
-        // -------------------------------------------------------------------
-        // 1) No visible script AND no beefPayload but we DO have a BEEF map:
-        // reconstruct the script from wallet.BEEF using the outpoint txid.
-        // -------------------------------------------------------------------
-        if (
-          !scriptHex &&
-          hasBeefMap &&
-          !hasBeefPayload &&
-          txidFromOutpoint &&
-          beefMap &&
-          beefMap[txidFromOutpoint]
-        ) {
-          try {
-            const rawBeefLike = beefMap[txidFromOutpoint];
-            const asUint8 =
-              rawBeefLike instanceof Uint8Array
-                ? rawBeefLike
-                : Uint8Array.from(rawBeefLike as number[]);
-            let txFromBeef: any;
-            try {
-              txFromBeef = Transaction.fromAtomicBEEF(Array.from(asUint8));
-              btmsDebug(
-                `${callId}: parsed atomicBEEF from wallet.BEEF for output #${idx}`,
-                { txid: txidFromOutpoint, voutIndex },
-              );
-            } catch (atomicErr: any) {
-              btmsDebug(
-                `${callId}: atomicBEEF parse failed from wallet.BEEF, trying full BEEF for output #${idx}`,
-                { message: atomicErr?.message, txid: txidFromOutpoint },
-              );
-              txFromBeef = Transaction.fromBEEF(Array.from(asUint8));
-            }
-            const out = txFromBeef.outputs[voutIndex];
-            if (out && out.lockingScript) {
-              const ls: any = out.lockingScript;
-              if (ls && typeof ls.toHex === "function") {
-                scriptHex = ls.toHex();
-              } else if (ls instanceof Uint8Array) {
-                scriptHex = Array.from(ls as Uint8Array)
-                  .map((b) => b.toString(16).padStart(2, "0"))
-                  .join("");
-              } else if (Array.isArray(ls)) {
-                scriptHex = (ls as any[])
-                  .map((n) => Number(n).toString(16).padStart(2, "0"))
-                  .join("");
-              }
-              btmsDebug(
-                `${callId}: reconstructed script from wallet.BEEF for output #${idx}`,
-                {
-                  txid: txidFromOutpoint,
-                  voutIndex,
-                  scriptPreview: scriptHex
-                    ? shortHex(scriptHex, 48)
-                    : "(no scriptHex)",
-                  scriptLen: scriptHex ? scriptHex.length : 0,
-                },
-              );
-            } else {
-              btmsDebug(
-                `${callId}: wallet.BEEF had tx but no output at voutIndex for output #${idx}`,
-                {
-                  txid: txidFromOutpoint,
-                  voutIndex,
-                  outputsLen: txFromBeef.outputs.length,
-                },
-              );
-            }
-          } catch (e: any) {
-            btmsDebug(
-              `${callId}: failed to reconstruct script from wallet.BEEF for output #${idx}`,
-              {
-                txid: txidFromOutpoint,
-                message: e?.message,
-                stackTop: String(e?.stack || "").split("\n")[0],
-              },
-            );
-          }
-        }
-        // -------------------------------------------------------------------
-        // 2) Still no script? Try customInstructions / beefPayload.
-        // -------------------------------------------------------------------
-        if (!scriptHex) {
-          const ci =
-            (o as any).customInstructions ||
-            (beefPayload as any)?.outputs?.[voutIndex]?.customInstructions ||
-            (beefPayload as any)?.outputs?.[0]?.customInstructions;
-          const decodedFromCI = decodeBTMSTokenFromCustomInstructions(ci);
-          if (decodedFromCI) {
-            const existing = assets.get(decodedFromCI.assetId);
-            let friendlyName: string | undefined;
-            if (decodedFromCI.metadata) {
-              try {
-                const parsed = JSON.parse(decodedFromCI.metadata);
-                friendlyName =
-                  parsed.name ||
-                  parsed.tokenName ||
-                  parsed.title ||
-                  decodedFromCI.assetId;
-              } catch {
-                friendlyName = decodedFromCI.metadata;
-              }
-            }
-            if (existing) {
-              existing.balance =
-                (existing.balance as number) +
-                (decodedFromCI.amount as number as SatoshiValue);
-            } else {
-              assets.set(decodedFromCI.assetId, {
-                assetId: decodedFromCI.assetId,
-                balance: decodedFromCI.amount,
-                name: friendlyName || decodedFromCI.assetId,
-                metadata: decodedFromCI.metadata,
-              });
-            }
-            btmsDebug(
-              `${callId}: output #${idx} decoded as BTMS token via customInstructions`,
-              {
-                assetId: decodedFromCI.assetId,
-                amount: decodedFromCI.amount,
-                voutIndex,
-                instanceId: this.instanceId,
-              },
-            );
-            continue;
-          }
-          const sat = Number(
-            (o as any).satoshis ?? (o as any).amount ?? 0,
-          ) as SatoshiValue;
-          bsvTotal = ((bsvTotal as number) + (sat as number)) as SatoshiValue;
-          btmsDebug(
-            `${callId}: output #${idx} had NO script ANYWHERE (even after BEEF/customInstructions), counted as BSV`,
-            {
-              addedSatoshis: sat,
-              runningBSV: bsvTotal,
-              raw: o,
-              instanceId: this.instanceId,
-            },
-          );
-          continue;
-        }
-        // -------------------------------------------------------------------
-        // 3) Script present (either directly or via BEEF): try pure BTMS decode;
-        // if that fails, count as BSV.
-        // -------------------------------------------------------------------
-        const decoded = decodeBTMSTokenFromScript(scriptHex);
-        if (decoded) {
-          const existing = assets.get(decoded.assetId);
-          let friendlyName: string | undefined;
-          if (decoded.metadata) {
-            try {
-              const parsed = JSON.parse(decoded.metadata);
-              friendlyName =
-                parsed.name ||
-                parsed.tokenName ||
-                parsed.title ||
-                decoded.assetId;
-            } catch {
-              friendlyName = decoded.metadata;
-            }
-          }
-          if (existing) {
-            existing.balance =
-              (existing.balance as number) +
-              (decoded.amount as number as SatoshiValue);
-          } else {
-            assets.set(decoded.assetId, {
-              assetId: decoded.assetId,
-              balance: decoded.amount,
-              name: friendlyName || decoded.assetId,
-              metadata: decoded.metadata,
-            });
-          }
-          btmsDebug(
-            `${callId}: output #${idx} decoded as BTMS token via script`,
-            {
-              assetId: decoded.assetId,
-              amount: decoded.amount,
-              voutIndex,
-              instanceId: this.instanceId,
-            },
-          );
-        } else {
-          const sat = Number(
-            (o as any).satoshis ?? (o as any).amount ?? 0,
-          ) as SatoshiValue;
-          bsvTotal = ((bsvTotal as number) + (sat as number)) as SatoshiValue;
-          btmsDebug(
-            `${callId}: output #${idx} script did NOT look like BTMS, counted as BSV`,
-            {
-              addedSatoshis: sat,
-              runningBSV: bsvTotal,
-              instanceId: this.instanceId,
-            },
-          );
-        }
+
+      btmsDebug(`${callId}: unsupported lockingScript type in ${context}`, {
+        type: typeof value,
+        value
+      })
+      return null
+    } catch (e) {
+      btmsDebug(`${callId}: toLockingScriptHex FAILED in ${context}`, {
+        error: e
+      })
+      return null
+    }
+  }
+
+  /**
+   * Always convert any BEEF-like value to AtomicBEEF (number[]).
+   * BTMS internal canonical BEEF type is number[] (AtomicBEEF).
+   */
+  private async toAtomicBeef(value: unknown, callId: string, context: string): Promise<AtomicBEEF | null> {
+    try {
+      // Already AtomicBEEF (number[])
+      if (Array.isArray(value)) {
+        return value as AtomicBEEF
       }
-      const result: Asset[] = Array.from(assets.values());
-      if ((bsvTotal as number) > 0) {
-        result.unshift({ assetId: "BSV", balance: bsvTotal });
+
+      // Uint8Array → convert to number[]
+      if (value instanceof Uint8Array) {
+        return Array.from(value) as AtomicBEEF
       }
-      btmsDebug(`${callId}: FINAL ASSET LIST ->`, result, {
-        instanceId: this.instanceId,
-      });
-      // update global cache (even if empty — and mark that we have fetched once)
-      globalCache.lastAssetSnapshot = result.map((a) => ({ ...a }));
-      globalCache.lastAssetFetchMs = now;
-      globalCache.hasFetchedOnce = true;
-      return result;
+
+      // Hex string → convert to number[]
+      if (typeof value === 'string') {
+        const hex = value.startsWith('0x') ? value.slice(2) : value
+        if (hex.length % 2 !== 0) {
+          btmsDebug(`${callId}: odd-length hex in ${context}`, { hex })
+          return null
+        }
+        const arr: number[] = []
+        for (let i = 0; i < hex.length; i += 2) {
+          arr.push(parseInt(hex.substring(i, i + 2), 16))
+        }
+        return arr as AtomicBEEF
+      }
+
+      btmsDebug(`${callId}: unsupported BEEF type in ${context}`, {
+        type: typeof value,
+        value
+      })
+      return null
+    } catch (e) {
+      btmsDebug(`${callId}: toAtomicBeef FAILED in ${context}`, { error: e })
+      return null
+    }
+  }
+
+  // ------------------------------------------------------------
+  // getTokens (new-world, ENTIRE TRANSACTION)
+  // ------------------------------------------------------------
+  async getTokens(assetId: string): Promise<BTMSWalletOutput[]> {
+    const callId = makeDebugCallId('getTokens')
+    btmsDebug(`${callId}: start`, { assetId })
+
+    const args: ListOutputsArgs = {
+      basket: this.basket,
+      include: 'entire transactions', // <- crucial: we need tx + outputIndex
+      includeTags: true,
+      includeLabels: false,
+      seekPermission: true,
+      limit: 10000
+    }
+
+    const listResult = await this.walletClient.listOutputs(args)
+
+    // Tell TypeScript these outputs are extended (have tx/outputIndex)
+    const outputs = listResult.outputs as BTMSWalletOutput[]
+    const filtered: BTMSWalletOutput[] = []
+
+    for (const o of outputs) {
+      if (!o.tx) {
+        btmsDebug(`${callId}: skip output (no tx)`, { outpoint: o.outpoint })
+        continue
+      }
+
+      const index = o.outputIndex ?? o.vout
+      if (typeof index !== 'number') {
+        btmsDebug(`${callId}: skip output (no outputIndex/vout)`, {
+          outpoint: o.outpoint
+        })
+        continue
+      }
+
+      let tx: Transaction
+      try {
+        tx = Transaction.fromAtomicBEEF(o.tx as any)
+      } catch (e) {
+        btmsDebug(`${callId}: skip output (tx decode failed)`, {
+          outpoint: o.outpoint,
+          error: e
+        })
+        continue
+      }
+
+      const out = tx.outputs[index]
+      if (!out || !out.lockingScript) {
+        btmsDebug(`${callId}: skip output (no lockingScript in tx)`, {
+          outpoint: o.outpoint
+        })
+        continue
+      }
+
+      // Canonical script hex
+      const scriptHex = out.lockingScript.toHex() as HexString
+
+      // -------------------------------------------------------
+      // NEW: unified BTMS v2 decoding
+      // -------------------------------------------------------
+      const decoded = this.decodeBTMSToken(scriptHex)
+      if (!decoded.valid) {
+        btmsDebug(`${callId}: skip output (decodeBTMSToken invalid)`, {
+          outpoint: o.outpoint
+        })
+        continue
+      }
+
+      // v2 always yields a proper assetId; fallback to ISSUE logic removed.
+      if (decoded.assetId !== assetId) {
+        btmsDebug(`${callId}: skip output (assetId mismatch)`, {
+          outpoint: o.outpoint,
+          decodedAssetId: decoded.assetId,
+          want: assetId
+        })
+        continue
+      }
+
+      // Ensure downstream callers have a clean HEX lockingScript
+      ;(o as any).lockingScript = scriptHex
+
+      filtered.push(o)
+    }
+
+    btmsDebug(`${callId}: done`, { count: filtered.length })
+    return filtered
+  }
+
+  /**
+   * Compute total balance for a given assetId by discovering and decoding
+   * its UTXOs. This now performs the basket lookup internally so callers
+   * only pass `assetId`. This is 100% aligned with listAssets() Section 3.
+   *
+   * IMPORTANT:
+   * - We ONLY count outputs that are owned by *this* identity:
+   *     - owner self
+   *     - owner <this.currentIdentity>
+   *   Any other owner tag (e.g. owner <otherKey>) is treated as
+   *   "given away" and does NOT contribute to this wallet's balance.
+   */
+  async getBalance(assetId: string): Promise<number> {
+    const callId = makeDebugCallId('getBalance')
+    btmsDebug(`${callId}: START`, { assetId, currentIdentity: this.currentIdentity })
+
+    // ---------------------------------------------------------
+    // 0) Discover UTXOs for this assetId via its basket
+    // ---------------------------------------------------------
+    const basket = `${TOKEN_BASKET_PREFIX} ${assetId}`
+
+    const args: ListOutputsArgs = {
+      basket,
+      include: 'locking scripts',
+      includeTags: true,
+      includeLabels: true,
+      seekPermission: true,
+      limit: 10000
+    }
+
+    btmsDebug(`${callId}: listOutputs ARGS`, { basket, args })
+
+    let result: ListOutputsResult
+    try {
+      result = await this.walletClient.listOutputs(args)
     } catch (err) {
-      btmsDebug("listAssets failed, returning cached or empty.", err, {
-        instanceId: this.instanceId,
-      });
-      // if we failed, remember that we *did* try — so we don’t spam again
-      globalCache.hasFetchedOnce = true;
-      if (globalCache.lastAssetSnapshot.length) {
-        return globalCache.lastAssetSnapshot.map((a) => ({ ...a }));
-      }
-      return [];
+      btmsDebug(`${callId}: listOutputs FAILED`, { basket, err })
+      return 0
     }
-  }
-  async listIncomingPayments(assetId?: string): Promise<IncomingPayment[]> {
-    // the client is JS-y; tell TS what shape we expect
-    const msgs = (await this.tokenator.listMessages({
-      messageBox: this.tokensMessageBox,
-    })) as Array<{
-      body: string | Record<string, any>;
-      sender: string;
-      messageId: string;
-    }>;
-    const results: IncomingPayment[] = [];
-    for (const msg of msgs) {
+
+    btmsDebug(`${callId}: listOutputs RESULT`, {
+      assetId,
+      basket,
+      totalOutputs: result.totalOutputs,
+      outputCount: result.outputs.length,
+      preview: result.outputs.slice(0, 3)
+    })
+
+    const utxos = result.outputs
+    let total = 0
+
+    // ---------------------------------------------------------
+    // 1) Decode each UTXO with unified BTMS decoder
+    //    BUT ONLY if it belongs to this wallet.
+    // ---------------------------------------------------------
+    for (const o of utxos) {
+      const outpoint = o.outpoint
+      const tags: string[] = ((o as any).tags || []).filter((t: any) => typeof t === 'string')
+
+      const ownerTag = tags.find(t => t.startsWith('owner '))
+      const isOwnedBySelf =
+        !ownerTag || // minted tokens with no explicit owner tag
+        ownerTag === 'owner self' ||
+        (this.currentIdentity && ownerTag === `owner ${this.currentIdentity}`)
+
+      btmsDebug(`${callId}: UTXO TAGS`, {
+        outpoint,
+        tags,
+        ownerTag,
+        currentIdentity: this.currentIdentity,
+        isOwnedBySelf
+      })
+
+      // Skip any UTXO that is explicitly tagged as belonging to someone else
+      if (!isOwnedBySelf) {
+        btmsDebug(`${callId}: SKIP non-self owner UTXO`, {
+          outpoint,
+          ownerTag
+        })
+        continue
+      }
+
+      const scriptHex = this.toLockingScriptHex((o as any).lockingScript, callId, 'getBalance')
+
+      btmsDebug(`${callId}: lockingScriptHex`, { outpoint, scriptHex })
+      if (!scriptHex) continue
+
+      // ---------------------------------------------------------
+      // 2) Unified BTMS decoder (same as listAssets)
+      // ---------------------------------------------------------
+      const decoded = this.decodeBTMSToken(scriptHex)
+
+      // Narrow the union — only after this can we access assetId/amount/metadata
+      if (!decoded.valid) {
+        btmsDebug(`${callId}: decodeBTMSToken → INVALID`, {
+          outpoint,
+          scriptHexPreview: scriptHex?.slice(0, 40),
+          fieldsLength: (decoded as any).fieldsLength
+        })
+        continue
+      }
+
+      const tokenName = decoded.assetId
+      const possibleAmount = decoded.amount
+      const possibleMetadata = decoded.metadata
+      const signature = decoded.signature
+
+      btmsDebug(`${callId}: classified fields`, {
+        outpoint,
+        tokenName,
+        possibleAmount,
+        possibleMetadata,
+        signature,
+        isValid: true
+      })
+
+      if (tokenName !== assetId) continue
+
+      // ---------------------------------------------------------
+      // 3) Extract amount
+      // ---------------------------------------------------------
+      const amount = Number(possibleAmount)
+      if (!Number.isFinite(amount) || amount <= 0) continue
+
+      // ---------------------------------------------------------
+      // 4) Metadata (parse only for logging consistency)
+      // ---------------------------------------------------------
+      const metadataJson = possibleMetadata ?? '{}'
       try {
-        // msg.body can be string or object
-        const rawBody = msg.body;
-        // sometimes it's a stringified string (double-encoded), sometimes one level
-        let payload: any;
-        if (typeof rawBody === "string") {
-          const once = JSON.parse(rawBody);
-          payload = typeof once === "string" ? JSON.parse(once) : once;
-        } else {
-          payload = rawBody;
-        }
-        const amt = Number(
-          payload.amount ?? payload.token?.amount ?? 0,
-        ) as SatoshiValue;
-        const msgAssetId = payload.assetId ?? payload.token?.assetId;
-        if (assetId && msgAssetId && msgAssetId !== assetId) {
-          continue;
-        }
-        const payment: IncomingPayment = {
-          txid: payload.txid ?? "",
-          vout: payload.vout ?? 0,
-          amount: amt,
-          token: (payload.token ?? {
-            txid: payload.txid ?? "",
-            vout: payload.vout ?? 0,
-            amount: amt,
-            beefPayload: (payload.beefPayload ?? {}) as CreateActionResult,
-            keyID: payload.keyID ?? "default",
-            lockingScript: "",
-          }) as TokenForRecipient,
-          sender: msg.sender,
-          messageId: msg.messageId,
-          keyID: payload.keyID ?? "default",
-          beefPayload: (payload.beefPayload ?? {}) as CreateActionResult,
-          lockingScript: "",
-        };
-        results.push(payment);
+        JSON.parse(metadataJson)
       } catch (err) {
-        btmsDebug("failed to parse incoming payment message", err, msg);
+        btmsDebug(`${callId}: metadata JSON parse failed`, {
+          outpoint,
+          metadataJson,
+          err
+        })
       }
+
+      // ---------------------------------------------------------
+      // 5) Add to total
+      // ---------------------------------------------------------
+      total += amount
     }
-    return results;
+
+    btmsDebug(`${callId}: TOTAL BALANCE`, { assetId, total })
+    return total
   }
-  async acceptIncomingPayment(
+
+  /**
+   * ISSUE: create brand-new BTMS tokens
+   */
+  async issue(
+    amount: number,
+    name: string,
     assetId: string,
-    payment: IncomingPayment,
-  ): Promise<void> {
-    const callId = makeDebugCallId("acceptIncomingPayment");
-    btmsDebug(`${callId}: start`, { assetId, payment });
-    // ---- 1) Gather script + BEEF context ----
-    // NEW: only support new-world lockingScript on the payment.
-    let scriptHex: string | undefined;
-    const scriptField: any = (payment as any).lockingScript;
-    if (typeof scriptField === "string") {
-      scriptHex = scriptField;
-    } else if (Array.isArray(scriptField)) {
-      // assume number[] bytes
-      const bytes = scriptField.map((n: any) => Number(n) & 0xff);
-      scriptHex = bytes.map((b) => b.toString(16).padStart(2, "0")).join("");
-    }
-    const beefPayload: any =
-      (payment as any).beefPayload ||
-      (payment.token as any)?.beefPayload ||
-      null;
-    btmsDebug(`${callId}: incoming payment raw fields`, {
-      hasLockingScript: !!(payment as any).lockingScript,
-      hasBeefPayload: !!beefPayload,
-      beefKeys: beefPayload ? Object.keys(beefPayload) : [],
-      vout: payment.vout,
-    });
-    // Try to reconstruct script from atomicBeef / BEEF if we don't have one yet
-    let overlayTxid = payment.txid || "";
-    if (!scriptHex && beefPayload) {
-      try {
-        // be tolerant of both atomic BEEF and BEEF, and of different field names
-        const rawBeefLike: any =
-          beefPayload.atomicBeef ??
-          beefPayload.atomicBEEF ??
-          beefPayload.beef ??
-          beefPayload.tx ??
-          beefPayload.context;
-        if (rawBeefLike) {
-          let rawBeef: Uint8Array;
-          if (Array.isArray(rawBeefLike)) {
-            rawBeef = new Uint8Array(
-              rawBeefLike.map((n: any) => Number(n) & 0xff),
-            );
-          } else if (rawBeefLike instanceof Uint8Array) {
-            rawBeef = rawBeefLike;
-          } else {
-            // last-ditch: assume it’s an object with a numeric .data property, etc.
-            const maybeArray = (rawBeefLike as any).data;
-            if (Array.isArray(maybeArray)) {
-              rawBeef = new Uint8Array(
-                maybeArray.map((n: any) => Number(n) & 0xff),
-              );
-            } else {
-              throw new Error("Unsupported rawBeef shape on beefPayload");
-            }
-          }
-          let tx: any;
-          try {
-            // prefer atomic BEEF; fall back to full BEEF
-            tx = Transaction.fromAtomicBEEF(Array.from(rawBeef));
-          } catch {
-            tx = Transaction.fromBEEF(Array.from(rawBeef));
-          }
-          const voutIndex = Number.isFinite(payment.vout) ? payment.vout! : 0;
-          const out = tx.outputs[voutIndex];
-          if (!out) {
-            btmsDebug(
-              `${callId}: could not find output at vout for reconstructed tx`,
-              { voutIndex, outputs: tx.outputs.length },
-            );
-          } else {
-            // always use lockingScript (new-world)
-            const ls: any = out.lockingScript;
-            if (ls && typeof ls.toHex === "function") {
-              scriptHex = ls.toHex();
-            } else if (ls instanceof Uint8Array) {
-              scriptHex = Array.from(ls as Uint8Array)
-                .map((b) => b.toString(16).padStart(2, "0"))
-                .join("");
-            } else if (Array.isArray(ls)) {
-              scriptHex = (ls as any[])
-                .map((n) => Number(n).toString(16).padStart(2, "0"))
-                .join("");
-            }
-            const computedTxid = tx.id("hex");
-            if (!overlayTxid && computedTxid) {
-              overlayTxid = computedTxid;
-            }
-            btmsDebug(`${callId}: reconstructed script from beefPayload`, {
-              computedTxid,
-              voutIndex,
-              scriptPreview: scriptHex
-                ? shortHex(scriptHex, 48)
-                : "(no scriptHex)",
-              scriptLen: scriptHex ? scriptHex.length : 0,
-            });
-          }
-        } else {
-          btmsDebug(
-            `${callId}: beefPayload present but no atomicBeef/beef/tx/context field`,
-          );
-        }
-      } catch (e: any) {
-        btmsDebug(`${callId}: failed to reconstruct script from beefPayload`, {
-          message: e?.message,
-          stackTop: String(e?.stack || "").split("\n")[0],
-        });
-      }
-    }
-    // If we still don't have a script, we can't continue
-    if (!scriptHex) {
-      btmsDebug(
-        `${callId}: no script available on incoming payment (no lockingScript and script reconstruction from beefPayload failed) — acking & failing`,
-        { payment },
-      );
-      if (payment?.messageId) {
-        await this.tokenator.acknowledgeMessage({
-          messageIds: [payment.messageId],
-        });
-      }
-      throw new Error(
-        "Incoming payment is missing a spendable lockingScript and script reconstruction from beefPayload failed",
-      );
-    }
-    // ---- 2) Decode script to get assetId, amount, metadata, lockingPublicKey ----
-    const parsed = parseBTMSScriptFull(scriptHex);
-    const parsedAssetId = parsed.assetId;
-    const parsedAmount = parsed.amount;
-    // Use the best-known txid for ISSUE aliasing
-    const aliasTxid = overlayTxid || payment.txid || "";
-    // Handle ISSUE -> txid.vout aliasing
-    const actualAssetId =
-      parsedAssetId && parsedAssetId !== "ISSUE"
-        ? parsedAssetId
-        : (`${aliasTxid}.${payment.vout ?? 0}` as string);
-    btmsDebug(`${callId}: parsed script`, {
-      parsed,
-      actualAssetId,
-      requestedAssetId: assetId,
-      aliasTxid,
-    });
-    // ---- 3) Asset ID must match ----
-    if (assetId && actualAssetId && assetId !== actualAssetId) {
-      btmsDebug(
-        `${callId}: token assetId mismatch (wanted ${assetId}, got ${actualAssetId}) — acking and failing`,
-      );
-      if (payment?.messageId) {
-        await this.tokenator.acknowledgeMessage({
-          messageIds: [payment.messageId],
-        });
-      }
-      throw new Error(
-        `This token is for assetId ${actualAssetId}, but you tried to accept ${assetId}`,
-      );
-    }
-    // ---- 4) Verify token was locked to *our* derived key
-    // TEMPORARILY RELAXED: we only log mismatches, we do NOT throw.
-    let myKeyHex: string | undefined;
-    if (parsed.lockingPublicKey) {
-      try {
-        const myKey = await this.getPublicKey({
-          protocolID: this.protocolID,
-          keyID: payment.keyID || "default",
-          counterparty: payment.sender,
-          forSelf: true,
-        });
-        myKeyHex = myKey?.toLowerCase();
-        btmsDebug(`${callId}: got my locking key`, { myKeyHex });
-      } catch (e: any) {
-        btmsDebug(
-          `${callId}: could not fetch my locking key (continuing anyway)`,
-          {
-            message: e?.message,
-          },
-        );
-      }
-      if (myKeyHex) {
-        const normalizedLock = parsed.lockingPublicKey.toLowerCase();
-        if (myKeyHex !== normalizedLock) {
-          btmsDebug(
-            `${callId}: locking key mismatch — TEMPORARILY ALLOWING token anyway`,
-            {
-              mine: myKeyHex,
-              theirs: normalizedLock,
-            },
-          );
-          // NOTE: no ack/throw here; we just continue for now.
-        }
-      }
-    }
-    // ---- 5) Ensure token is on overlay (old-world strict behaviour) ----
-    const vout = payment.vout ?? 0;
-    btmsDebug(`${callId}: checking overlay presence`, {
-      txid: aliasTxid,
-      vout,
-    });
-    const alreadyThere = await this.findFromTokenOverlay({
-      txid: aliasTxid as TXIDHexString,
-      vout,
-    });
-    if (!alreadyThere.length) {
-      btmsDebug(`${callId}: token not on overlay — attempting to submit`);
-      const submitBeefPayload: any = beefPayload;
-      if (
-        !submitBeefPayload ||
-        !Array.isArray(submitBeefPayload.atomicBeef) ||
-        !submitBeefPayload.atomicBeef.length
-      ) {
-        btmsDebug(
-          `${callId}: missing or invalid beefPayload.atomicBeef on incoming payment — acking & failing`,
-          { payment },
-        );
-        if (payment?.messageId) {
-          await this.tokenator.acknowledgeMessage({
-            messageIds: [payment.messageId],
-          });
-        }
-        throw new Error(
-          "Incoming payment is missing required beefPayload.atomicBeef",
-        );
-      }
-      try {
-        await this.submitToTokenOverlay({
-          atomicBeef: submitBeefPayload.atomicBeef,
-        });
-      } catch (err: any) {
-        btmsDebug(`${callId}: submitToTokenOverlay failed`, {
-          message: err?.message,
-        });
-        // fall through to strict re-check below
-      }
-      const verifiedAfterSubmit = await this.findFromTokenOverlay({
-        txid: aliasTxid as TXIDHexString,
-        vout,
-      });
-      if (!verifiedAfterSubmit.length) {
-        btmsDebug(
-          `${callId}: token is for me but still not on overlay after submit — acking & failing`,
-        );
-        if (payment?.messageId) {
-          await this.tokenator.acknowledgeMessage({
-            messageIds: [payment.messageId],
-          });
-        }
-        throw new Error("Token is for me but not on the overlay");
-      }
-    } else {
-      btmsDebug(`${callId}: token already present on overlay`);
-    }
-    // ---- 6) Build UX metadata (note/labels) from parsed metadata ----
-    let tokenName = "Token";
-    let labels: string[] = [];
-    const amountStr = parsedAmount != null ? String(parsedAmount) : "";
+    metadata: string,
+    autoSwitchBasket = true
+  ): Promise<BroadcastResponse | BroadcastFailure> {
+    const callId = makeDebugCallId('issue')
+    btmsDebug(`${callId}: START`, { amount, name, assetId, metadata })
+
     try {
-      if (parsed.metadata) {
-        const meta =
-          typeof parsed.metadata === "string"
-            ? JSON.parse(parsed.metadata)
-            : parsed.metadata;
-        if (meta && typeof meta.name === "string") {
-          tokenName = meta.name;
-        } else if (meta && typeof meta.description === "string") {
-          tokenName = meta.description;
-        }
+      const basket: BasketStringUnder300Bytes = `${this.basketPrefix} ${ASSET_ID_VERSION} ${assetId}`
+
+      btmsDebug(`${callId}: using per-token basket`, { basket })
+
+      // unified identity lookup
+      const { publicKey: myIdentityKey } = await this.walletClient.getPublicKey({
+        identityKey: true
+      })
+
+      btmsDebug(`${callId}: issuer identity`, { myIdentityKey })
+
+      const keyID = this.getRandomKeyID()
+      btmsDebug(`${callId}: mint keyID`, { keyID })
+
+      /**
+       * ------------------------------------------------------------------
+       * FIXED + HARDENED METADATA
+       * ------------------------------------------------------------------
+       * - Always enforces assetId and name.
+       * - If caller passed metadata, merge it.
+       * - Prevents empty {}, which broke PushDrop decode.
+       */
+      let metadataObj: any = {}
+
+      try {
+        const parsed = metadata && metadata.trim().length > 0 ? JSON.parse(metadata) : {}
+
+        // Merge user metadata
+        metadataObj = { ...parsed }
+      } catch {
+        metadataObj = {}
       }
-    } catch {
-      // ignore metadata parse errors
-    }
-    if (actualAssetId) {
-      labels = [actualAssetId.replace(".", " ")];
-    }
-    const note = `Receive ${amountStr} ${tokenName} from ${payment.sender}`;
-    btmsDebug(`${callId}: built wallet note/labels`, { note, labels });
-    // ---- 7) Tell the wallet “this is mine now” via internalizeAction ----
-    try {
-      const wallet = walletClient;
-      // 7a) Inspect raw atomicBeef from BTMS payload
-      const rawAtomic: any =
-        beefPayload && (beefPayload as any).atomicBeef !== undefined
-          ? (beefPayload as any).atomicBeef
-          : null;
-      btmsDebug(`${callId}: raw beefPayload.atomicBeef snapshot`, {
-        hasBeefPayload: !!beefPayload,
-        type: rawAtomic === null ? "null" : typeof rawAtomic,
-        isArray: Array.isArray(rawAtomic),
-        tag:
-          rawAtomic && rawAtomic.constructor
-            ? rawAtomic.constructor.name
-            : null,
-        sample:
-          Array.isArray(rawAtomic) || rawAtomic instanceof Uint8Array
-            ? Array.from(rawAtomic).slice(0, 16)
-            : rawAtomic,
-      });
-      // 7b) Normalize & canonicalize via Transaction.fromAtomicBEEF / fromBEEF / toAtomicBEEF
-      let atomicBeef: number[] = [];
-      if (Array.isArray(rawAtomic) || rawAtomic instanceof Uint8Array) {
-        try {
-          const asUint8 =
-            rawAtomic instanceof Uint8Array
-              ? rawAtomic
-              : Uint8Array.from(rawAtomic as number[]);
-          let txFromBeef: any;
-          try {
-            txFromBeef = Transaction.fromAtomicBEEF(Array.from(asUint8));
-            btmsDebug(`${callId}: parsed atomicBEEF for wallet internalize`, {
-              txid: aliasTxid,
-            });
-          } catch (atomicErr: any) {
-            btmsDebug(
-              `${callId}: atomicBEEF parse failed for wallet internalize, trying full BEEF`,
-              { message: atomicErr?.message },
-            );
-            txFromBeef = Transaction.fromBEEF(Array.from(asUint8));
-          }
-          const atomicBytes = txFromBeef.toAtomicBEEF();
-          atomicBeef = Array.from(atomicBytes, (n: number) => Number(n) & 0xff);
-          btmsDebug(`${callId}: built AtomicBEEF for wallet internalize`, {
-            txid: aliasTxid,
-            beefLen: Array.isArray(beefPayload?.atomicBeef)
-              ? beefPayload.atomicBeef.length
-              : 0,
-            atomicLen: atomicBeef.length,
-            firstBytes: atomicBeef.slice(0, 16),
-          });
-        } catch (e: any) {
-          btmsDebug(
-            `${callId}: FAILED to canonicalize beefPayload.atomicBeef for wallet internalize`,
-            { message: e?.message },
-          );
-        }
-      } else if (rawAtomic != null) {
-        btmsDebug(
-          `${callId}: unexpected atomicBeef shape (not array/Uint8Array)`,
-          { value: rawAtomic },
-        );
-      }
-      if (!atomicBeef.length) {
-        btmsDebug(
-          `${callId}: wallet internalize skipped — missing/invalid beefPayload.atomicBeef`,
-          { payment },
-        );
-        // we still continue to ack at the end
-        return;
-      }
-      // 7c) Call wallet.internalizeAction as a basket insertion
-      const walletLabels =
-        labels && labels.length ? labels : [actualAssetId || "btms-token"];
-      // For BTMS this is effectively always the token's vout
-      const outputIndex = typeof vout === "number" && vout >= 0 ? vout : 0;
-      const insertionRemittance = {
-        basket: this.basket,
-        tags: walletLabels,
-      };
-      const internalizeArgs: InternalizeActionArgs = {
-        tx: atomicBeef,
+
+      // Enforce required fields (cannot be removed by user)
+      metadataObj.assetId = assetId
+      metadataObj.name = name
+
+      const metadataJson = JSON.stringify(metadataObj)
+
+      btmsDebug(`${callId}: FINAL METADATA JSON`, { metadataJson })
+
+      const token = new BTMSToken(this.walletClient)
+
+      // STRICT 5-FIELD schema (signature="")
+      const lockScript = await token.lock(
+        this.protocolID,
+        this.protocolKeyID,
+        'self',
+        assetId,
+        amount,
+        metadataJson,
+        'ISSUE',
+        '' // signature field required but empty for v1/v2
+      )
+
+      const lockingScriptHex = lockScript.toHex()
+
+      // discovery output
+      const discoveryTemplate = new BTMSFundingToken(this.walletClient)
+      const discoveryLockScript = await discoveryTemplate.lock(this.protocolID, this.protocolKeyID, 'self')
+      const discoveryLockingScriptHex = discoveryLockScript.toHex()
+
+      const discoveryLabel: LabelStringUnder300Bytes =
+        `${PROTOCOL} ${ASSET_ID_VERSION} ${ASSET_ID_TERM}=${assetId}` as LabelStringUnder300Bytes
+
+      const args: CreateActionArgs = {
+        description: `Issue ${amount} ${name}`,
+        labels: [discoveryLabel],
+
         outputs: [
           {
-            outputIndex,
-            protocol: "basket insertion",
-            insertionRemittance,
-          } as any,
+            satoshis: this.satoshis,
+            lockingScript: lockingScriptHex,
+            basket,
+            outputDescription: `${amount} new ${name}`,
+            tags: ['btms', 'tokens', 'issue'] as OutputTagStringUnder300Bytes[],
+            customInstructions: JSON.stringify({
+              sender: myIdentityKey,
+              keyID,
+              amount,
+              assetId,
+              metadata: metadataJson
+            })
+          },
+          {
+            satoshis: 1,
+            lockingScript: discoveryLockingScriptHex,
+            basket: DISCOVERY_BASKET as BasketStringUnder300Bytes,
+            outputDescription: `discovery ${discoveryLabel}`,
+            tags: ['btms', 'discovery'] as OutputTagStringUnder300Bytes[]
+          }
         ],
-        description: note,
-        labels: walletLabels,
-        seekPermission: false,
-      } as unknown as InternalizeActionArgs;
-      btmsDebug(`${callId}: calling wallet.internalizeAction(...)`, {
-        basket: this.basket,
-        vout: outputIndex,
-        txLength: atomicBeef.length,
-        insertionRemittance,
-      });
-      const internalizeResult: any = await (wallet as any).internalizeAction(
-        internalizeArgs as any,
-      );
-      btmsDebug(`${callId}: wallet.internalizeAction completed`, {
-        accepted: internalizeResult?.accepted === true,
-      });
-      // If it really was accepted, force the next listAssets() call
-      // to hit the wallet again (instead of re-serving an empty cache).
-      if (internalizeResult?.accepted) {
-        globalCache.hasFetchedOnce = false;
-        globalCache.lastAssetFetchMs = 0;
-        globalCache.lastAssetSnapshot = [];
-      } else {
-        btmsDebug(
-          `${callId}: wallet.internalizeAction did NOT report accepted:true`,
-        );
+
+        options: {
+          acceptDelayedBroadcast: false,
+          randomizeOutputs: false
+        }
       }
-    } catch (err: any) {
-      btmsDebug(`${callId}: wallet internalize failed (continuing)`, {
-        message: err?.message,
-        stack: err?.stack,
-      });
-    }
-    // ---- 8) Finally, ack the message so it disappears from inbox ----
-    if (payment?.messageId) {
-      await this.tokenator.acknowledgeMessage({
-        messageIds: [payment.messageId],
-      });
-    }
-    btmsDebug(`${callId}: done`);
-  }
-  async refundIncomingTransaction(
-    _assetId: string,
-    payment: IncomingPayment,
-  ): Promise<void> {
-    if (payment?.messageId) {
-      await this.tokenator.acknowledgeMessage({
-        messageIds: [payment.messageId],
-      });
+
+      btmsDebug(`${callId}: createAction ARGS`, args)
+
+      const createActionResult = await this.walletClient.createAction(args)
+
+      if (!createActionResult.tx) {
+        throw new Error('Transaction is undefined. Action may be delayed.')
+      }
+
+      const broadcaster = new TopicBroadcaster(['tm_btms'], {
+        networkPreset: 'local'
+      })
+
+      const finalResult = await broadcaster.broadcast(Transaction.fromAtomicBEEF(createActionResult.tx))
+
+      btmsDebug(`${callId}: BROADCAST RESULT`, finalResult)
+
+      if (autoSwitchBasket) {
+        this.basket = basket
+        btmsDebug(`${callId}: auto-switched active basket`, { basket })
+      }
+
+      return finalResult
+    } catch (error: unknown) {
+      throw error
     }
   }
-  /**
-   * Send a BTMS-style payment/message to another identity via message-box-client.
-   * Hydration order: LookupResolver (Meter default) -> HTTP LARS (localhost:8080).
-   * Requires a non-empty AtomicBEEF (number[]/Uint8Array) OR resolves {txid,vout}
-   * automatically from the selected token (no UI txid/vout fields needed).
-   */
-  async send(...raw: Array<any | string | number>): Promise<void> {
-    // ---------- helpers ----------
-    const isAtomicBEEFArray = (bp: any): boolean =>
-      (Array.isArray(bp) &&
-        bp.every((n) => Number.isInteger(n) && n >= 0 && n <= 255)) ||
-      (bp instanceof Uint8Array && bp.length > 0);
-    const isNonEmptyBeef = (bp: any): boolean => {
-      if (!bp) return false;
-      if (isAtomicBEEFArray(bp)) return (bp as any).length > 0;
-      if (Array.isArray(bp.atomicBeef)) return bp.atomicBeef.length > 0;
-      if (bp instanceof ArrayBuffer) return (bp as ArrayBuffer).byteLength > 0;
-      return false;
-    };
-    const toNumberArray = (bp: any): number[] => {
-      if (!bp) return [];
-      if (Array.isArray(bp.atomicBeef)) return bp.atomicBeef as number[];
-      if (bp instanceof Uint8Array) return Array.from(bp);
-      if (bp instanceof ArrayBuffer) return Array.from(new Uint8Array(bp));
-      if (Array.isArray(bp)) return bp as number[];
-      return [];
-    };
-    const normHex = (h?: string): string => (h ? h.toLowerCase() : "");
-    // -------------------------------------------------------------------------
-    // helper: findOutpointForAsset (already updated)
-    // -------------------------------------------------------------------------
-    const findOutpointForAsset = async (
-      assetId?: string,
-    ): Promise<{ txid: TXIDHexString; vout: number } | null> => {
-      const callId = makeDebugCallId("findOutpointForAsset");
-      btmsDebug(`${callId}: start`, { assetId });
-      if (!assetId) {
-        btmsDebug(`${callId}: no assetId provided`);
-        return null;
-      }
-      try {
-        const wallet = walletClient;
-        let outs: any[] = [];
-        if (typeof wallet.listOutputs === "function") {
-          const res = await wallet.listOutputs({
-            basket: this.basket,
-            limit: 500,
-            offset: 0,
-            includeCustomInstructions: true,
-            seekPermission: false,
-          });
-          outs = Array.isArray(res?.outputs) ? res.outputs : [];
-          btmsDebug(`${callId}: listOutputs ok`, {
-            count: outs.length,
-            keys: res ? Object.keys(res) : null,
-          });
-        } else {
-          btmsDebug(`${callId}: no listOutputs on wallet`);
-          return null;
-        }
-        for (const o of outs) {
-          const script = extractLockingScriptFromWalletOutput(o);
-          const decoded =
-            (script ? decodeBTMSTokenFromScript(script) : null) ||
-            decodeBTMSTokenFromCustomInstructions(o.customInstructions);
-          if (!decoded) continue;
-          if (decoded.assetId !== assetId) continue;
-          if (typeof o.outpoint === "string") {
-            const { txid, vout } = parseOutpoint(o.outpoint);
-            if (txid && Number.isFinite(vout)) {
-              btmsDebug(`${callId}: match via outpoint string`, { txid, vout });
-              return { txid, vout };
-            }
-          }
-          const txid = normHex(o.txid || "") as TXIDHexString;
-          const vout = Number(o.vout);
-          if (txid && Number.isFinite(vout)) {
-            btmsDebug(`${callId}: match via txid/vout fields`, { txid, vout });
-            return { txid, vout };
-          }
-        }
-        btmsDebug(`${callId}: no match found for assetId`, { assetId });
-        return null;
-      } catch (e: any) {
-        btmsDebug(`${callId}: error`, {
-          message: e?.message,
-          stackTop: String(e?.stack || "").split("\n")[0],
-        });
-        return null;
-      }
-    };
-    // ---------- 1) normalize args ----------
-    let args: any;
-    if (raw.length === 1 && typeof raw[0] === "object" && raw[0] !== null) {
-      args = raw[0];
-    } else {
-      const [assetId, recipientMaybe, amountMaybe, messageBox] = raw as [
-        string | undefined,
-        string | undefined,
-        number | string | undefined,
-        string | undefined,
-      ];
-      args = {
-        assetId,
-        amount:
-          typeof amountMaybe === "string" ? Number(amountMaybe) : amountMaybe,
-        recipient: recipientMaybe,
-        recipientIdentityKey: recipientMaybe,
-        identityKey: recipientMaybe,
-        messageBox,
-      };
+
+  async switchIdentityToActiveProfile() {
+    const callId = makeDebugCallId('switchIdentityToActiveProfile')
+    btmsDebug(`${callId}: START`)
+
+    // ----------------------------------------------------------
+    // 0) WAIT UNTIL WALLET REPORTS A NEW IDENTITY
+    // ----------------------------------------------------------
+    const previousIdentity = this.currentIdentity
+    let activeIdentityKey = previousIdentity
+
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const { publicKey } = await this.walletClient.getPublicKey({ identityKey: true })
+      activeIdentityKey = publicKey
+
+      if (activeIdentityKey && activeIdentityKey !== previousIdentity) break
+
+      await new Promise<void>(resolve => setTimeout(resolve, 50))
     }
-    // ---------- 2) pick recipient ----------
-    const candidateRecipients = [
-      args.recipient,
-      args.recipientIdentityKey,
-      args.identityKey,
-      (args as any).recipientKey,
-      (args as any).to,
-      (args as any).target,
-    ];
-    const recipient = candidateRecipients
-      .filter((x: any) => typeof x === "string")
-      .map((x: string) => x.trim())
-      .find((s) => !!s);
-    if (!recipient) {
-      btmsDebug("[BTMS.send] missing recipient", {
-        keys: Object.keys(args || {}),
-      });
-      throw new Error("BTMS.send: recipient is required");
+
+    if (!activeIdentityKey || activeIdentityKey === previousIdentity) {
+      btmsDebug(`${callId}: wallet never reported a NEW identity`, {
+        previousIdentity,
+        activeIdentityKey
+      })
+      return
     }
-    const {
-      messageBox,
-      recipient: _r1,
-      recipientIdentityKey: _r2,
-      identityKey: _r3,
-      ...rest
-    } = args;
-    const fromArgOutpoint = parseOutpoint(
-      (rest.outpoint as string) ||
-        (rest.selectedOutput?.outpoint as string) ||
-        (rest?.token?.outpoint as string),
-    );
-    const tokenTxid = normHex(rest?.token?.txid);
-    const tokenVout = Number(rest?.token?.vout);
-    let txidNorm = normHex(rest.txid || tokenTxid || fromArgOutpoint.txid);
-    let voutNorm = Number.isFinite(Number(rest.vout))
-      ? Number(rest.vout)
-      : Number.isFinite(fromArgOutpoint.vout)
-        ? fromArgOutpoint.vout
-        : tokenVout;
-    let haveOutpoint =
-      !!txidNorm &&
-      Number.isFinite(voutNorm) &&
-      voutNorm >= 0 &&
-      Number.isInteger(voutNorm);
-    if (!haveOutpoint && rest.assetId) {
-      const picked = await findOutpointForAsset(rest.assetId);
-      if (picked) {
-        txidNorm = normHex(picked.txid);
-        voutNorm = picked.vout;
-        haveOutpoint = true;
-        btmsDebug("[BTMS.send] auto-selected outpoint", {
-          assetId: rest.assetId,
-          txid: txidNorm,
-          vout: voutNorm,
-        });
-      }
-    }
-    btmsDebug("[BTMS.send] args summary", {
-      recipient,
-      assetId: rest.assetId,
-      amount: rest.amount,
-      haveOutpoint,
-      txid: txidNorm,
-      vout: voutNorm,
-      hasBeefPayloadField: !!rest.beefPayload,
-    });
-    // ---------- 3) hydrate beefPayload ----------
-    let beefPayload: any =
-      rest.beefPayload ??
-      rest.beef ??
-      rest?.token?.beefPayload ??
-      rest?.token?.beef ??
-      null;
-    // 3a) If we still don't have usable BEEF, try ls_btms via LookupResolver/HTTP
-    if (!isNonEmptyBeef(beefPayload) && haveOutpoint) {
-      try {
-        const overlayResults = await this.findFromTokenOverlay({
-          txid: txidNorm as TXIDHexString,
-          vout: voutNorm,
-        });
-        const first = overlayResults[0];
-        const atomicFromOverlay: number[] | undefined =
-          first && (first as any).beef;
-        if (Array.isArray(atomicFromOverlay) && atomicFromOverlay.length) {
-          beefPayload = { atomicBeef: atomicFromOverlay };
-          btmsDebug("[BTMS.send] hydrated beefPayload via overlay", {
-            txid: txidNorm,
-            vout: voutNorm,
-            len: atomicFromOverlay.length,
-          });
-        } else {
-          btmsDebug("[BTMS.send] overlay returned no beef for outpoint", {
-            txid: txidNorm,
-            vout: voutNorm,
-          });
-        }
-      } catch (e: any) {
-        btmsDebug("[BTMS.send] overlay hydration failed", {
-          message: e?.message,
-          txid: txidNorm,
-          vout: voutNorm,
-        });
-      }
-    }
-    // ---------- 4) final beef check ----------
-    const beefArray: number[] = toNumberArray(beefPayload);
-    if (!beefArray.length) {
-      throw new Error(
-        `BTMS.send: beefPayload empty. OVERLAY_BASE=${OVERLAY_BASE}, haveOutpoint=${haveOutpoint}, txid=${txidNorm}, vout=${voutNorm}.`,
-      );
-    }
-    // -------------------------------------------------------------------------
-    // 5) Canonical new-world shape: { atomicBeef: number[] }
-    // -------------------------------------------------------------------------
-    const beefContainer = { atomicBeef: beefArray };
-    // ---------- 6) final body ----------
-    const body = {
-      ...rest,
-      token: rest.token ?? {
-        txid: txidNorm || "",
-        vout: Number.isFinite(voutNorm) ? voutNorm : 0,
-        amount: typeof rest.amount === "number" ? rest.amount : 0,
-        assetId: rest.assetId,
-        beef: beefArray,
-        beefPayload: beefContainer,
-        keyID: rest.keyID ?? "default",
-      },
-      beef: beefArray,
-      beefPayload: beefContainer,
-    };
-    btmsDebug("[BTMS.send] about to send message", {
-      recipient,
-      messageBox: messageBox || this.tokensMessageBox,
-      bodyKeys: Object.keys(body),
-      beefLen: beefArray.length,
-    });
-    // ---------- 7) send ----------
-    await this.tokenator.sendMessage({
-      recipient,
-      messageBox: messageBox || this.tokensMessageBox,
-      body,
-    });
-    btmsDebug("[BTMS.send] message sent OK", {
-      recipient,
-      txid: body.token.txid,
-      vout: body.token.vout,
-      beefLen: beefArray.length,
-    });
-  }
-  private async findFromTokenOverlay(token: {
-    txid: TXIDHexString;
-    vout: number;
-  }): Promise<OverlaySearchResult[]> {
-    // Talk directly to the local overlay, same as your curl:
-    // curl -X POST $OVERLAY_BASE/lookup \
-    // -d '{"service":"ls_btms","query":{"txid":"...","vout":0}}'
-    const base = (OVERLAY_BASE || "http://localhost:8080").replace(/\/+$/, "");
-    const overlayUrl = `${base}/lookup`;
-    const body = {
-      service: "ls_btms",
-      query: { txid: token.txid, vout: token.vout },
-    };
-    // Prefer global fetch in the browser; fall back to this.requester if needed
-    const httpFetcher: (url: string, init?: RequestInit) => Promise<Response> =
-      typeof fetch === "function" ? fetch.bind(globalThis) : this.requester;
+
     try {
-      const res = await httpFetcher(overlayUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        btmsDebug("findFromTokenOverlay: HTTP non-OK", {
-          status: res.status,
-          overlayUrl,
-          txid: token.txid,
-          vout: token.vout,
-        });
-        return [];
+      // ----------------------------------------------------------
+      // 1) Confirm active identity from wallet
+      // ----------------------------------------------------------
+      const { publicKey: confirmedKey } = await this.walletClient.getPublicKey({
+        identityKey: true
+      })
+
+      btmsDebug(`${callId}: activeIdentityKey`, { confirmedKey })
+
+      if (!confirmedKey || typeof confirmedKey !== 'string') {
+        btmsDebug(`${callId}: identityKey UNDEFINED — aborting switch`)
+        return
       }
-      const json = (await res.json()) as any;
-      // Modern base-overlay shape:
-      // { type: 'output-list', outputs: [ { beef: number[], ... } ] }
-      if (json?.type === "output-list" && Array.isArray(json.outputs)) {
-        const outputs: any[] = json.outputs;
-        const normalized: OverlaySearchResult[] = outputs.flatMap(
-          (out: any) => {
-            try {
-              const beef: number[] = out.beef ?? out.context;
-              if (!Array.isArray(beef) || !beef.length) return [];
-              const vout = Number(out.outputIndex ?? out.vout ?? token.vout);
-              // The overlay may be storing full BRC-95 BEEF, not atomicBEEF.
-              // Try atomic first (what WalletClient expects), then fall back.
-              let tx: any;
-              try {
-                tx = Transaction.fromAtomicBEEF(beef);
-              } catch {
-                tx = Transaction.fromBEEF(beef);
-              }
-              const txid = tx.id("hex");
-              const o = tx.outputs[vout];
-              if (!o) return [];
-              // derive lockingScript hex from tx output
-              const ls: any = o.lockingScript;
-              let lockingScript = "";
-              if (ls && typeof ls.toHex === "function") {
-                lockingScript = ls.toHex();
-              } else if (ls instanceof Uint8Array) {
-                lockingScript = Array.from(ls as Uint8Array)
-                  .map((b) => b.toString(16).padStart(2, "0"))
-                  .join("");
-              } else if (Array.isArray(ls)) {
-                lockingScript = (ls as any[])
-                  .map((n) => Number(n).toString(16).padStart(2, "0"))
-                  .join("");
-              }
-              const satoshis = Number(
-                (o.satoshis as number) ?? 0,
-              ) as SatoshiValue;
-              return [
-                {
-                  txid,
-                  vout,
-                  rawTx: Utils.toHex(tx.toAtomicBEEF()),
-                  lockingScript,
-                  satoshis,
-                  inputs: null,
-                  mapiResponses: null,
-                  proof: out.context ?? null,
-                  beef,
-                },
-              ];
-            } catch (innerErr: any) {
-              btmsDebug(
-                "findFromTokenOverlay: skipping output due to parse error",
-                {
-                  message: innerErr?.message,
-                  txid: token.txid,
-                  vout: token.vout,
-                },
-              );
-              return [];
-            }
-          },
-        );
-        if (!normalized.length) {
-          btmsDebug(
-            "findFromTokenOverlay: HTTP output-list but no parsable entries",
-            {
-              overlayUrl,
-              txid: token.txid,
-              vout: token.vout,
-            },
-          );
-        }
-        return normalized;
+
+      if (this.currentIdentity === confirmedKey) {
+        btmsDebug(`${callId}: identity unchanged → SKIPPING full refresh`, {
+          cachedIdentity: this.currentIdentity
+        })
+        return
       }
-      // Legacy shapes (array/object). Keep tolerant behaviour.
-      if (Array.isArray(json)) return json as OverlaySearchResult[];
-      if (json && typeof json === "object")
-        return [json as OverlaySearchResult];
-      return [];
-    } catch (err: any) {
-      btmsDebug("findFromTokenOverlay: HTTP path failed", {
-        message: err?.message,
-        overlayUrl,
-        txid: token.txid,
-        vout: token.vout,
-      });
-      return [];
-    }
-  }
-  private async submitToTokenOverlay(
-    tx: any,
-    topics = [this.tokenTopic],
-  ): Promise<SubmitResult> {
-    // 1) try SHIP if we have something tx-like
-    try {
-      const atomic = tx?.tx || tx?.atomicBeef || tx?.beef || tx?.rawTx;
-      if (atomic) {
-        const facilitator = new HTTPSOverlayBroadcastFacilitator(fetch, true);
-        facilitator.allowHTTP = true;
-        const broadcaster = new SHIPBroadcaster(topics, {
-          networkPreset: "local" as const,
-          facilitator,
-          requireAcknowledgmentFromAnyHostForTopics: "any",
-        });
-        const t = Transaction.fromAtomicBEEF(atomic);
-        await broadcaster.broadcast(t);
-        // fabricate a SubmitResult so callers get the shape they expect
-        return {
-          status: "success",
-          topics: {
-            [topics[0]]: [0],
-          },
-        };
+
+      // Apply new identity
+      this.currentIdentity = confirmedKey
+
+      // Force a fresh asset discovery after switching identity
+      await this.listAssets('locking scripts')
+
+      btmsDebug(`${callId}: walletClient remains unchanged`)
+
+      // ----------------------------------------------------------
+      // 2) Update messageboxes for this identity
+      // ----------------------------------------------------------
+      this.tokensMessageBox = `btms-v2-custody-${confirmedKey}`
+      this.marketplaceMessageBox = `btms-v2-market-${confirmedKey}`
+      this.basket = INIT_BASKET
+
+      btmsDebug(`${callId}: updated messageboxes`, {
+        tokensMessageBox: this.tokensMessageBox,
+        marketplaceMessageBox: this.marketplaceMessageBox
+      })
+
+      // ----------------------------------------------------------
+      // 3) Recreate tokenator
+      // ----------------------------------------------------------
+      this.tokenator = new MessageBoxTokenator(walletClient, this.tokensMessageBox)
+      btmsDebug(`${callId}: tokenator recreated`)
+
+      // 🔥 **CRITICAL FIX: must init() tokenator for new profile**
+      await this.tokenator.init()
+      btmsDebug(`${callId}: tokenator.init() complete`)
+
+      // ----------------------------------------------------------
+      // 4) Refresh asset list for new identity
+      // ----------------------------------------------------------
+      btmsDebug(`${callId}: refreshing assets after identity switch`)
+
+      const refreshedAssets = await this.listAssets()
+
+      if (this.setAssetsCallback) {
+        this.setAssetsCallback(refreshedAssets)
       }
-    } catch (err: any) {
-      btmsDebug(
-        "submitToTokenOverlay: SHIP path failed, falling back to HTTP",
-        {
+
+      // ----------------------------------------------------------
+      // 5) Refresh incoming payments
+      // ----------------------------------------------------------
+      try {
+        btmsDebug(`${callId}: refreshing incoming payments after identity switch`)
+        await this.listIncomingPayments()
+        btmsDebug(`${callId}: incoming payments refresh COMPLETE`)
+      } catch (err: any) {
+        btmsDebug(`${callId}: listIncomingPayments AFTER SWITCH FAILED (non-fatal)`, {
           message: err?.message,
-        },
-      );
-      // fall through to HTTP
+          stack: err?.stack?.split('\n').slice(0, 2)
+        })
+      }
+
+      btmsDebug(`${callId}: COMPLETE`, {
+        assetsCount: refreshedAssets.length
+      })
+    } catch (err: any) {
+      btmsDebug(`${callId}: ERROR`, {
+        message: err?.message,
+        stack: err?.stack?.split('\n').slice(0, 3)
+      })
+      throw err
     }
-    // 2) HTTP fallback — this matches the overlay you’ve been curling
-    const overlayUrl = "http://localhost:8080/submit";
-    const body = {
-      ...tx,
-      topics,
-      provider: "tm_btms",
-    };
-    const res = await this.requester(overlayUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        // your node wanted this:
-        "x-topics": JSON.stringify(topics),
-      },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      btmsDebug("submitToTokenOverlay: HTTP non-OK", {
-        status: res.status,
-        text,
-      });
-      throw new Error(`Overlay submit failed: ${res.status}`);
-    }
-    const json = (await res.json()) as SubmitResult;
-    btmsDebug("submitToTokenOverlay: HTTP success", json);
-    return json;
   }
-  async issue(...rawArgs: any[]): Promise<{
-    assetId: string;
-    amount: SatoshiValue;
-    metadata: string;
-    /** renamed from `envelope` */
-    beefPayload?: any;
-    atomicBeef: string | null;
-  }> {
-    // legacy positional
-    if (rawArgs.length && typeof rawArgs[0] !== "object") {
-      const [amountMaybe, nameOrAssetId, metadataMaybe] = rawArgs as [
-        number | string,
-        string | undefined,
-        any,
-      ];
-      const amount = Number(amountMaybe ?? 1) as SatoshiValue;
-      const assetId =
-        nameOrAssetId || `asset_${Math.random().toString(36).slice(2, 10)}`;
-      const normalizedMetadata =
-        typeof metadataMaybe === "string"
-          ? metadataMaybe
-          : JSON.stringify(metadataMaybe ?? {});
-      const tok = new BTMSToken();
-      const lockingScriptObj = await tok.lock(
-        this.protocolID,
-        "default",
-        "self",
+
+  //     async send(
+  //     assetId: string,
+  //     recipient: string,
+  //     sendAmount: number,
+  //     onPaymentSent: (payment: TokenForRecipient) => void = () => {}
+  //   ): Promise<SubmitResult> {
+  //     const callId = makeDebugCallId('send')
+  //     btmsDebug(`${callId}: START`, { assetId, recipient, sendAmount })
+
+  //     try {
+  //       /* ------------------------------------------------------------------ */
+  //       /* 1) Fetch tokens + balance                                          */
+  //       /* ------------------------------------------------------------------ */
+
+  //       const myTokens = await this.getTokens(assetId)
+
+  //       btmsDebug(`${callId}: getTokens RESULT`, {
+  //         count: myTokens.length,
+  //         firstOutpoint: myTokens[0]?.outpoint,
+  //         firstVout: (myTokens[0] as any)?.vout ?? (myTokens[0] as any)?.outputIndex,
+  //         hasTx: !!(myTokens[0] as any)?.tx
+  //       })
+
+  //       if (!Number.isFinite(sendAmount) || sendAmount <= 0) {
+  //         throw new Error('BTMS send: amount must be greater than zero.')
+  //       }
+
+  //       const myBalance = await this.getBalance(assetId)
+  //       btmsDebug(`${callId}: getBalance RESULT`, { myBalance })
+
+  //       if (sendAmount > myBalance) {
+  //         throw new Error('BTMS send: insufficient tokens.')
+  //       }
+
+  //       /* ------------------------------------------------------------- */
+  //       /* 1B) Fetch spendable UTXO WITH FULL BEEF                       */
+  //       /* ------------------------------------------------------------- */
+
+  //       const tokenBasket = `${this.basketPrefix} ${ASSET_ID_VERSION} ${assetId}` as BasketStringUnder300Bytes
+
+  //       btmsDebug(`${callId}: tokenBasket`, tokenBasket)
+
+  //       const beefListArgs: ListOutputsArgs = {
+  //         basket: tokenBasket,
+  //         include: 'entire transactions',
+  //         includeTags: true,
+  //         includeLabels: true,
+  //         seekPermission: true,
+  //         limit: 100
+  //       }
+
+  //       btmsDebug(`${callId}: listOutputs ARGS (send BEEF fetch)`, beefListArgs)
+
+  //       let beefResult: ListOutputsResult = {
+  //         totalOutputs: 0,
+  //         outputs: []
+  //       }
+
+  //       try {
+  //         beefResult = await this.walletClient.listOutputs(beefListArgs)
+  //       } catch (err) {
+  //         btmsDebug(`${callId}: listOutputs FAILED beefResult:`, { beefResult })
+  //         btmsDebug(`${callId}: listOutputs FAILED error:`, { err })
+  //         throw new Error('BTMS send: failed to fetch BTMS UTXOs for send.')
+  //       }
+
+  //       btmsDebug(`${callId}: listOutputs RESULT (send BEEF fetch)`, {
+  //         outputCount: beefResult.outputs.length,
+  //         preview: beefResult.outputs.slice(0, 3),
+  //         hasTopLevelBeef: !!(beefResult as any).BEEF
+  //       })
+
+  //       /* ------------------------------------------------------------------ */
+  //       /*  NEW FIX: TOP-LEVEL BEEF DECODE (TS-SDK-CORRECT)                   */
+  //       /* ------------------------------------------------------------------ */
+
+  //       const topLevelBeefRaw = (beefResult as any).BEEF
+
+  //       if (!topLevelBeefRaw) {
+  //         throw new Error('BTMS send: wallet did not return full BEEF for token basket.')
+  //       }
+
+  //       let beefObj: Beef
+  //       try {
+  //         const beefArray = Utils.toArray(topLevelBeefRaw as any)
+  //         beefObj = Beef.fromBinary(beefArray)
+  //       } catch (error) {
+  //         btmsDebug(`${callId}: failed to parse top-level BEEF`, { error })
+  //         throw new Error('BTMS send: invalid prior transaction BEEF.')
+  //       }
+
+  //       btmsDebug(`${callId}: decoded BEEF`, {
+  //         txCount: beefObj.txs.length
+  //       })
+
+  //       const spendableUtxo = beefResult.outputs.find(u => u.spendable && u.satoshis === 1)
+
+  //       if (!spendableUtxo) {
+  //         throw new Error('BTMS send: no spendable BTMS UTXO found for this asset.')
+  //       }
+
+  //       btmsDebug(`${callId}: chosen spendable utxo`, {
+  //         outpoint: spendableUtxo.outpoint
+  //       })
+
+  //       const [txid, voutStr] = spendableUtxo.outpoint.split('.')
+  //       const vout = Number(voutStr)
+
+  //       const txEntry = beefObj.txs.find(t => t.txid === txid)
+
+  //       if (!txEntry) {
+  //         btmsDebug(`${callId}: ERROR — token TX not inside BEEF`, {
+  //           txid,
+  //           available: beefObj.txs.map(t => t.txid)
+  //         })
+  //         throw new Error('BTMS send: token TX not found inside BEEF.')
+  //       }
+
+  //       const atomicBEEF = beefObj.toBinaryAtomic(txid)
+
+  //       btmsDebug(`${callId}: FINAL atomicBEEF`, {
+  //         txid,
+  //         byteLength: atomicBEEF.length
+  //       })
+
+  //       const first: BTMSWalletOutput = {
+  //         ...spendableUtxo,
+  //         tx: atomicBEEF,
+  //         outputIndex: vout
+  //       } as any
+
+  //       /* ------------------------------------------------------------------ */
+  //       /*  RE-JOIN ORIGINAL LOGIC (UNCHANGED BELOW THIS POINT)               */
+  //       /* ------------------------------------------------------------------ */
+
+  //       if (!(first as any).tx) {
+  //         throw new Error('BTMS send: token UTXO is missing its BEEF.')
+  //       }
+
+  //       const inputIndex = (first as any).outputIndex ?? (first as any).vout
+
+  //       if (typeof inputIndex !== 'number') {
+  //         throw new Error('BTMS send: missing outputIndex/vout.')
+  //       }
+
+  //       const loadedBeef = Beef.fromBinary((first as any).tx as any)
+  //       const prevTx = Transaction.fromAtomicBEEF((first as any).tx as any)
+  //       const prevOut = prevTx.outputs[inputIndex]
+  //       const scriptHex = prevOut.lockingScript.toHex() as HexString
+
+  //       let decoded
+  //       try {
+  //         decoded = PushDrop.decode(LockingScript.fromHex(scriptHex))
+  //       } catch {
+  //         throw new Error('BTMS send: previous output is not BTMS PushDrop.')
+  //       }
+
+  //       const utf8Fields = decoded.fields.map(f => Utils.toUTF8(f))
+
+  //       btmsDebug(`${callId}: PushDrop decoded UTF8 fields`, { utf8Fields })
+
+  //       if (utf8Fields.length < 4) {
+  //         throw new Error('BTMS send: malformed PushDrop (expected ≥4 fields).')
+  //       }
+
+  //       const tokenName = utf8Fields[0]
+  //       const amtStr = utf8Fields[1]
+  //       const op = utf8Fields[2]
+  //       const metadataJson = utf8Fields[3]
+
+  //       if (op !== 'ISSUE') {
+  //         throw new Error(`BTMS send: expected "ISSUE" marker, got "${op}".`)
+  //       }
+
+  //       if (!metadataJson) {
+  //         throw new Error('BTMS send: metadata JSON missing in PushDrop.')
+  //       }
+
+  //       const firstAmount = Number(amtStr)
+  //       if (!Number.isFinite(firstAmount) || firstAmount <= 0) {
+  //         throw new Error(`BTMS send: invalid amount: "${amtStr}".`)
+  //       }
+
+  //       if (tokenName !== assetId) {
+  //         throw new Error(`BTMS send: token mismatch. Expected "${assetId}", got "${tokenName}".`)
+  //       }
+
+  //       let parsedMetadata: { name?: string } = {}
+  //       try {
+  //         parsedMetadata = JSON.parse(metadataJson)
+  //       } catch {
+  //         throw new Error('BTMS send: metadata JSON is invalid.')
+  //       }
+
+  //       const tokenDisplayName = parsedMetadata.name ?? assetId
+
+  //       btmsDebug(`${callId}: classified PushDrop fields`, {
+  //         tokenName,
+  //         firstAmount,
+  //         metadataJson,
+  //         parsedName: tokenDisplayName
+  //       })
+
+  //       /* ------------------------------------------------------------------ */
+  //       /* 2) Extract keyID for unlocking (OPTIONAL — OLD MINT SAFE)          */
+  //       /* ------------------------------------------------------------------ */
+  //       let unlockKeyID: string | undefined
+  //       let rawCustomInstructions: any = undefined
+
+  //       try {
+  //         rawCustomInstructions = (first as any).customInstructions
+
+  //         const parsed =
+  //           typeof rawCustomInstructions === 'string' ? JSON.parse(rawCustomInstructions) : rawCustomInstructions || {}
+
+  //         unlockKeyID = parsed.keyID
+
+  //         btmsDebug(`${callId}: unlock metadata from customInstructions`, {
+  //           hasCustomInstructions: !!rawCustomInstructions,
+  //           parsed,
+  //           unlockKeyID
+  //         })
+  //       } catch (err) {
+  //         btmsDebug(`${callId}: customInstructions parse error (NON-FATAL)`, {
+  //           rawCustomInstructions,
+  //           err
+  //         })
+  //       }
+
+  //       if (!unlockKeyID) {
+  //         btmsDebug(`${callId}: WARNING — previous token UTXO has NO keyID (old mint). Using protocol key only.`, {})
+  //       }
+
+  //       btmsDebug(`${callId}: unlock keyID (optional)`, { unlockKeyID })
+
+  //       /* ------------------------------------------------------------------ */
+  //       /* 3) Load sender identity (current profile’s identity key)           */
+  //       /* ------------------------------------------------------------------ */
+
+  //       const { publicKey: myIdentityKey } = await this.walletClient.getPublicKey({
+  //         identityKey: true
+  //       })
+
+  //       btmsDebug(`${callId}: getPublicKey RESULT`, { myIdentityKey })
+
+  //       /* ------------------------------------------------------------------ */
+  //       /* 4) Build recipient + change outputs with BTMSToken.lock()          */
+  //       /* ------------------------------------------------------------------ */
+
+  //       const template = new BTMSToken(walletClient)
+  //       const outputs: CreateActionOutput[] = []
+
+  //       /* ---------------------- */
+  //       /* Recipient Output       */
+  //       /* ---------------------- */
+
+  //       const recipientKeyID = this.getRandomKeyID()
+
+  //       btmsDebug(`${callId}: RECIPIENT: building lock()`, {
+  //         assetId,
+  //         sendAmount,
+  //         metadataJson,
+  //         recipientKeyID,
+  //         recipient
+  //       })
+
+  //       const recipientLockScript = await template.lock(
+  //         PROTOCOL_ID,
+  //         PROTOCOL_KEY_ID,
+  //         'self',
+  //         assetId,
+  //         sendAmount,
+  //         metadataJson
+  //       )
+
+  //       const recipientScriptHex = recipientLockScript.toHex() as HexString
+
+  //       btmsDebug(`${callId}: RECIPIENT lock() RESULT`, {
+  //         scriptPreview: shortHex(recipientScriptHex, 48),
+  //         fullLength: recipientScriptHex.length,
+  //         sendAmount,
+  //         metadataJson
+  //       })
+
+  //       /* ------------------------------------------------------------------ */
+  //       /* SYMMETRY TEST: ensure outgoing token is decodable (strict v2)      */
+  //       /* ------------------------------------------------------------------ */
+
+  //       try {
+  //         const d = this.decodeBTMSToken(recipientScriptHex)
+
+  //         if (!d.valid) {
+  //           throw new Error('decodeBTMSToken returned invalid structure for outgoing BTMS token')
+  //         }
+
+  //         if (!d.assetId || typeof d.assetId !== 'string') {
+  //           throw new Error('BTMS send: missing assetId in PushDrop.')
+  //         }
+
+  //         if (!Number.isFinite(d.amount) || d.amount <= 0) {
+  //           throw new Error('BTMS send: invalid amount in PushDrop.')
+  //         }
+
+  //         if (!d.metadata || typeof d.metadata !== 'string') {
+  //           throw new Error('BTMS send: missing metadata JSON in PushDrop.')
+  //         }
+
+  //         if (d.op !== 'ISSUE' && d.op !== 'TRANSFER') {
+  //           throw new Error(`BTMS send: malformed token — expected ISSUE/TRANSFER, got ${d.op}`)
+  //         }
+  //       } catch (e) {
+  //         btmsDebug(`${callId}: SYMMETRY CHECK FAILED`, { e })
+  //         throw new Error('BTMS send: outgoing token failed symmetry decode check.')
+  //       }
+
+  //       const recipientOutput: CreateActionOutput = {
+  //         satoshis: this.satoshis,
+  //         lockingScript: recipientScriptHex,
+  //         outputDescription: `Send ${sendAmount} ${tokenDisplayName}`,
+  //         tags: [myIdentityKey === recipient ? 'owner self' : `owner ${recipient}`] as OutputTagStringUnder300Bytes[]
+  //       }
+
+  //       // FULL new-world customInstructions
+  //       recipientOutput.customInstructions = JSON.stringify({
+  //         sender: myIdentityKey,
+  //         keyID: recipientKeyID,
+  //         amount: sendAmount,
+  //         assetId,
+  //         metadata: metadataJson
+  //       })
+
+  //       btmsDebug(`${callId}: RECIPIENT customInstructions`, {
+  //         customInstructions: recipientOutput.customInstructions
+  //       })
+
+  //       // 🔴 FIX: ALWAYS keep tokens inside the per-asset basket
+  //       // so both sender and receiver profiles can discover them.
+  //       recipientOutput.basket = tokenBasket
+
+  //       outputs.push(recipientOutput)
+
+  // /* -------------------------------------------------------- */
+  // /* REQUIRED: Discovery Output (IDENTICAL to issue())        */
+  // /* -------------------------------------------------------- */
+
+  // const discoveryTemplate = new BTMSFundingToken(walletClient);
+
+  // const discoveryLockScript = await discoveryTemplate.lock(
+  //   this.protocolID,
+  //   this.protocolKeyID,
+  //   "self"
+  // );
+
+  // const discoveryLockingScriptHex = discoveryLockScript.toHex() as HexString;
+
+  // // Strong-typed discovery label
+  // const discoveryLabel: LabelStringUnder300Bytes =
+  //   `${PROTOCOL} ${ASSET_ID_VERSION} ${ASSET_ID_TERM}=${assetId}` as LabelStringUnder300Bytes;
+
+  // const discoveryOutput: CreateActionOutput = {
+  //   satoshis: 1,
+  //   lockingScript: discoveryLockingScriptHex,
+  //   basket: DISCOVERY_BASKET as BasketStringUnder300Bytes,
+  //   outputDescription: `discovery ${discoveryLabel}`,
+  //   tags: ["btms-discovery"] as OutputTagStringUnder300Bytes[],
+  // };
+
+  // btmsDebug(`${callId}: DISCOVERY OUTPUT (send)`, {
+  //   discoveryLabel,
+  //   lockingScriptPreview: shortHex(discoveryLockingScriptHex, 48),
+  // });
+
+  // outputs.push(discoveryOutput);
+
+  //       /* ---------------------- */
+  //       /* Change Output          */
+  //       /* ---------------------- */
+
+  //       const changeAmount = firstAmount - sendAmount
+
+  //       btmsDebug(`${callId}: CHANGE: computed`, {
+  //         firstAmount,
+  //         sendAmount,
+  //         changeAmount
+  //       })
+
+  //       if (changeAmount > 0) {
+  //         const changeLockScript = await template.lock(
+  //           PROTOCOL_ID,
+  //           PROTOCOL_KEY_ID,
+  //           'self',
+  //           assetId,
+  //           changeAmount,
+  //           metadataJson
+  //         )
+
+  //         const changeScriptHex = changeLockScript.toHex() as HexString
+
+  //         btmsDebug(`${callId}: CHANGE lock() RESULT`, {
+  //           scriptPreview: shortHex(changeScriptHex, 48),
+  //           fullLength: changeScriptHex.length,
+  //           changeAmount
+  //         })
+
+  //         const changeOutput: CreateActionOutput = {
+  //           satoshis: this.satoshis,
+  //           lockingScript: changeScriptHex,
+  //           basket: tokenBasket,
+  //           outputDescription: `Keep ${changeAmount} ${tokenDisplayName}`,
+  //           tags: ['owner self'] as OutputTagStringUnder300Bytes[],
+  //           customInstructions: JSON.stringify({
+  //             sender: myIdentityKey,
+  //             keyID: this.getRandomKeyID(),
+  //             amount: changeAmount,
+  //             assetId,
+  //             metadata: metadataJson
+  //           })
+  //         }
+
+  //         btmsDebug(`${callId}: CHANGE customInstructions`, {
+  //           customInstructions: changeOutput.customInstructions
+  //         })
+
+  //         outputs.push(changeOutput)
+  //       }
+
+  //       /* ------------------------------------------------------------------ */
+  //       /* 5) createAction (protected protocol)                               */
+  //       /* ------------------------------------------------------------------ */
+
+  //       const createActionArgs: CreateActionArgs = {
+  //         description: `Send ${sendAmount} ${tokenDisplayName} to ${recipient}`,
+  //         labels: [assetId as LabelStringUnder300Bytes],
+  //         inputBEEF: loadedBeef.toBinary(),
+  //         inputs: [
+  //           {
+  //             outpoint: (first.outpoint ?? `${prevTx.id('hex')}.${inputIndex}`) as OutpointString,
+  //             unlockingScriptLength: 74,
+  //             inputDescription: `Spend ${tokenDisplayName} BTMS token`
+  //           }
+  //         ],
+  //         outputs,
+  //         options: {
+  //           acceptDelayedBroadcast: false,
+  //           randomizeOutputs: false
+  //         }
+  //       }
+
+  //       btmsDebug(`${callId}: createAction ARGS`, {
+  //         description: createActionArgs.description,
+  //         labels: createActionArgs.labels,
+  //         inputs: createActionArgs.inputs,
+  //         outputsCount: createActionArgs.outputs?.length ?? 0
+  //       })
+
+  //       const createActionResult = await this.walletClient.createAction(createActionArgs)
+
+  //       btmsDebug(`${callId}: createAction RESULT`, {
+  //         hasSignable: !!createActionResult.signableTransaction
+  //       })
+
+  //       const { signableTransaction } = createActionResult
+
+  //       if (!signableTransaction) {
+  //         throw new Error('BTMS send: createAction -> no signableTransaction.')
+  //       }
+
+  //       /* ------------------------------------------------------------------ */
+  //       /* 6) Unlocking script via PushDrop.unlock                            */
+  //       /* ------------------------------------------------------------------ */
+
+  //       const txForSigning = Transaction.fromAtomicBEEF(signableTransaction.tx)
+
+  //       const unlocker = new PushDrop(walletClient).unlock(PROTOCOL_ID, PROTOCOL_KEY_ID, 'self')
+
+  //       btmsDebug(`${callId}: unlocker.sign ARGS`, {
+  //         txid: txForSigning.id('hex'),
+  //         inputIndex: 0
+  //       })
+
+  //       const unlockingScript = await unlocker.sign(txForSigning, 0)
+
+  //       btmsDebug(`${callId}: unlocker.sign RESULT`, {
+  //         unlockingScriptPreview: shortHex(unlockingScript.toHex(), 48)
+  //       })
+
+  //       /* ------------------------------------------------------------------ */
+  //       /* 7) signAction (protected protocol)                                 */
+  //       /* ------------------------------------------------------------------ */
+
+  //       const signActionArgs: SignActionArgs = {
+  //         reference: signableTransaction.reference,
+  //         spends: {
+  //           0: { unlockingScript: unlockingScript.toHex() }
+  //         }
+  //       }
+
+  //       btmsDebug(`${callId}: signAction ARGS`, signActionArgs)
+
+  //       const signResult = await this.walletClient.signAction(signActionArgs)
+
+  //       btmsDebug(`${callId}: signAction RESULT`, {
+  //         hasTx: !!signResult.tx
+  //       })
+
+  //       if (!signResult.tx) {
+  //         throw new Error('BTMS send: signAction missing tx.')
+  //       }
+
+  //       const finalTxObj = Transaction.fromAtomicBEEF(signResult.tx)
+  //       const finalTxid = finalTxObj.id('hex') as TXIDHexString
+
+  //       /* ------------------------------------------------------------------ */
+  //       /* 8) TokenForRecipient + message-box send                            */
+  //       /* ------------------------------------------------------------------ */
+
+  //       const tokenForRecipient: TokenForRecipient = {
+  //         txid: finalTxid,
+  //         vout: 0,
+  //         lockingScript: recipientScriptHex,
+  //         amount: sendAmount,
+  //         satoshis: this.satoshis,
+  //         beefPayload: Utils.toArray(signResult.tx),
+  //         beef: signResult.tx,
+  //         keyID: recipientKeyID
+  //       }
+
+  //       btmsDebug(`${callId}: tokenForRecipient`, {
+  //         txid: tokenForRecipient.txid,
+  //         amount: tokenForRecipient.amount,
+  //         keyID: tokenForRecipient.keyID
+  //       })
+
+  //       /* ------------------------------------------------------------------ */
+  //       /* 8B) SEND MESSAGE TO RECIPIENT’S CUSTODY BOX                        */
+  //       /* ------------------------------------------------------------------ */
+
+  //       if (myIdentityKey !== recipient) {
+  //         const recipientCustodyBox = `btms-v2-custody-${recipient}` as LabelStringUnder300Bytes
+
+  //         const sendMessageArgs = {
+  //           recipient,
+  //           messageBox: recipientCustodyBox,
+  //           body: JSON.stringify({ token: tokenForRecipient })
+  //         }
+
+  //         btmsDebug(`${callId}: message-box sendMessage ARGS`, sendMessageArgs)
+
+  //         await this.tokenator.sendMessage(sendMessageArgs)
+
+  //         btmsDebug(`${callId}: message-box sendMessage RESULT`, { ok: true })
+  //       }
+
+  //       try {
+  //         onPaymentSent(tokenForRecipient)
+  //       } catch (err) {
+  //         btmsDebug(`${callId}: onPaymentSent callback threw`, { err })
+  //       }
+
+  //       /* ------------------------------------------------------------------ */
+  //       /* 9) Broadcast via TopicBroadcaster                                  */
+  //       /* ------------------------------------------------------------------ */
+
+  //       const broadcasterArgs = {
+  //         topics: ['tm_btms'],
+  //         options: {
+  //           networkPreset: 'local' as const
+  //         }
+  //       }
+
+  //       btmsDebug(`${callId}: TopicBroadcaster ARGS`, broadcasterArgs)
+
+  //       const broadcaster = new TopicBroadcaster(broadcasterArgs.topics, broadcasterArgs.options)
+
+  //       const broadcastResult = await broadcaster.broadcast(finalTxObj)
+
+  //       btmsDebug(`${callId}: broadcast RESULT`, broadcastResult)
+
+  //       if (broadcastResult.status !== 'success') {
+  //         throw new Error(`BTMS send: broadcast failed: ${(broadcastResult as any).reason}`)
+  //       }
+
+  //       btmsDebug(`${callId}: COMPLETE`, { finalTxid })
+
+  //       return { status: 'success', topics: {} }
+  //     } catch (error: any) {
+  //       if (error instanceof WERR_REVIEW_ACTIONS) {
+  //         console.error('BTMS SEND: WERR_REVIEW_ACTIONS', {
+  //           code: error.code,
+  //           message: error.message,
+  //           reviewActionResults: error.reviewActionResults
+  //         })
+  //       } else {
+  //         console.error('BTMS SEND: unexpected', error)
+  //       }
+
+  //       btmsDebug(`${callId}: FINAL ERROR`, {
+  //         message: error?.message,
+  //         stack: error?.stack
+  //       })
+
+  //       throw error
+  //     }
+  //   }
+
+  // ---------------------------------------------------------------
+  // SEND() — With Diagnostic Enrichment
+  // ---------------------------------------------------------------
+  /******************************************************************************************
+   * INSTRUMENTED send()
+   ******************************************************************************************/
+  async send(
+    assetId: string,
+    recipient: string,
+    sendAmount: number,
+    onPaymentSent: (payment: TokenForRecipient) => void = () => {}
+  ): Promise<SubmitResult> {
+    const callId = makeDebugCallId('send')
+    btmsDebug(`${callId}: START`, { assetId, recipient, sendAmount })
+
+    try {
+      /* ------------------------------------------------------------------ */
+      /* 1) Fetch tokens + balance                                          */
+      /* ------------------------------------------------------------------ */
+
+      const myTokens = await this.getTokens(assetId)
+
+      btmsDebug(`${callId}: getTokens RESULT`, {
+        count: myTokens.length,
+        firstOutpoint: myTokens[0]?.outpoint,
+        firstVout: (myTokens[0] as any)?.vout ?? (myTokens[0] as any)?.outputIndex,
+        hasTx: !!(myTokens[0] as any)?.tx
+      })
+
+      if (!Number.isFinite(sendAmount) || sendAmount <= 0) {
+        throw new Error('BTMS send: amount must be greater than zero.')
+      }
+
+      const myBalance = await this.getBalance(assetId)
+      btmsDebug(`${callId}: getBalance RESULT`, { myBalance })
+
+      if (sendAmount > myBalance) {
+        throw new Error('BTMS send: insufficient tokens.')
+      }
+
+      /* ------------------------------------------------------------- */
+      /* 1B) Fetch spendable UTXO WITH FULL BEEF                       */
+      /* ------------------------------------------------------------- */
+
+      const tokenBasket = `${this.basketPrefix} ${ASSET_ID_VERSION} ${assetId}` as BasketStringUnder300Bytes
+
+      btmsDebug(`${callId}: tokenBasket`, tokenBasket)
+
+      const beefListArgs: ListOutputsArgs = {
+        basket: tokenBasket,
+        include: 'entire transactions',
+        includeTags: true,
+        includeLabels: true,
+        seekPermission: true,
+        limit: 100
+      }
+
+      btmsDebug(`${callId}: listOutputs ARGS (send BEEF fetch)`, beefListArgs)
+
+      let beefResult: ListOutputsResult = {
+        totalOutputs: 0,
+        outputs: []
+      }
+
+      try {
+        beefResult = await this.walletClient.listOutputs(beefListArgs)
+      } catch (err) {
+        btmsDebug(`${callId}: listOutputs FAILED beefResult:`, { beefResult })
+        btmsDebug(`${callId}: listOutputs FAILED error:`, { err })
+        throw new Error('BTMS send: failed to fetch BTMS UTXOs for send.')
+      }
+
+      btmsDebug(`${callId}: listOutputs RESULT (send BEEF fetch)`, {
+        outputCount: beefResult.outputs.length,
+        preview: beefResult.outputs.slice(0, 3),
+        hasTopLevelBeef: !!(beefResult as any).BEEF
+      })
+
+      /* ------------------------------------------------------------------ */
+      /*  NEW FIX: TOP-LEVEL BEEF DECODE (TS-SDK-CORRECT)                   */
+      /* ------------------------------------------------------------------ */
+
+      const topLevelBeefRaw = (beefResult as any).BEEF
+
+      if (!topLevelBeefRaw) {
+        throw new Error('BTMS send: wallet did not return full BEEF for token basket.')
+      }
+
+      let beefObj: Beef
+      try {
+        const beefArray = Utils.toArray(topLevelBeefRaw as any)
+        beefObj = Beef.fromBinary(beefArray)
+      } catch (error) {
+        btmsDebug(`${callId}: failed to parse top-level BEEF`, { error })
+        throw new Error('BTMS send: invalid prior transaction BEEF.')
+      }
+
+      btmsDebug(`${callId}: decoded BEEF`, {
+        txCount: beefObj.txs.length
+      })
+
+      const spendableUtxo = beefResult.outputs.find(u => u.spendable && u.satoshis === 1)
+
+      if (!spendableUtxo) {
+        throw new Error('BTMS send: no spendable BTMS UTXO found for this asset.')
+      }
+
+      btmsDebug(`${callId}: chosen spendable utxo`, {
+        outpoint: spendableUtxo.outpoint
+      })
+
+      const [txid, voutStr] = spendableUtxo.outpoint.split('.')
+      const vout = Number(voutStr)
+
+      const txEntry = beefObj.txs.find(t => t.txid === txid)
+
+      if (!txEntry) {
+        btmsDebug(`${callId}: ERROR — token TX not inside BEEF`, {
+          txid,
+          available: beefObj.txs.map(t => t.txid)
+        })
+        throw new Error('BTMS send: token TX not found inside BEEF.')
+      }
+
+      const atomicBEEF = beefObj.toBinaryAtomic(txid)
+
+      btmsDebug(`${callId}: FINAL atomicBEEF`, {
+        txid,
+        byteLength: atomicBEEF.length
+      })
+
+      const first: BTMSWalletOutput = {
+        ...spendableUtxo,
+        tx: atomicBEEF,
+        outputIndex: vout
+      } as any
+
+      /* ------------------------------------------------------------------ */
+      /*  RE-JOIN ORIGINAL LOGIC (UNCHANGED BELOW THIS POINT)               */
+      /* ------------------------------------------------------------------ */
+
+      if (!(first as any).tx) {
+        throw new Error('BTMS send: token UTXO is missing its BEEF.')
+      }
+
+      const inputIndex = (first as any).outputIndex ?? (first as any).vout
+
+      if (typeof inputIndex !== 'number') {
+        throw new Error('BTMS send: missing outputIndex/vout.')
+      }
+
+      const loadedBeef = Beef.fromBinary((first as any).tx as any)
+      const prevTx = Transaction.fromAtomicBEEF((first as any).tx as any)
+      const prevOut = prevTx.outputs[inputIndex]
+      const scriptHex = prevOut.lockingScript.toHex() as HexString
+
+      let decoded
+      try {
+        decoded = PushDrop.decode(LockingScript.fromHex(scriptHex))
+      } catch {
+        throw new Error('BTMS send: previous output is not BTMS PushDrop.')
+      }
+
+      const utf8Fields = decoded.fields.map(f => Utils.toUTF8(f))
+
+      btmsDebug(`${callId}: PushDrop decoded UTF8 fields`, { utf8Fields })
+
+      if (utf8Fields.length < 4) {
+        throw new Error('BTMS send: malformed PushDrop (expected ≥4 fields).')
+      }
+
+      const tokenName = utf8Fields[0]
+      const amtStr = utf8Fields[1]
+      const op = utf8Fields[2]
+      const metadataJson = utf8Fields[3]
+
+      if (op !== 'ISSUE') {
+        throw new Error(`BTMS send: expected "ISSUE" marker, got "${op}".`)
+      }
+
+      if (!metadataJson) {
+        throw new Error('BTMS send: metadata JSON missing in PushDrop.')
+      }
+
+      const firstAmount = Number(amtStr)
+      if (!Number.isFinite(firstAmount) || firstAmount <= 0) {
+        throw new Error(`BTMS send: invalid amount: "${amtStr}".`)
+      }
+
+      if (tokenName !== assetId) {
+        throw new Error(`BTMS send: token mismatch. Expected "${assetId}", got "${tokenName}".`)
+      }
+
+      let parsedMetadata: { name?: string } = {}
+      try {
+        parsedMetadata = JSON.parse(metadataJson)
+      } catch {
+        throw new Error('BTMS send: metadata JSON is invalid.')
+      }
+
+      const tokenDisplayName = parsedMetadata.name ?? assetId
+
+      btmsDebug(`${callId}: classified PushDrop fields`, {
+        tokenName,
+        firstAmount,
+        metadataJson,
+        parsedName: tokenDisplayName
+      })
+
+      /* ------------------------------------------------------------------ */
+      /* 2) Extract keyID for unlocking (OPTIONAL — OLD MINT SAFE)          */
+      /* ------------------------------------------------------------------ */
+      let unlockKeyID: string | undefined
+      let rawCustomInstructions: any = undefined
+
+      try {
+        rawCustomInstructions = (first as any).customInstructions
+
+        const parsed =
+          typeof rawCustomInstructions === 'string' ? JSON.parse(rawCustomInstructions) : rawCustomInstructions || {}
+
+        unlockKeyID = parsed.keyID
+
+        btmsDebug(`${callId}: unlock metadata from customInstructions`, {
+          hasCustomInstructions: !!rawCustomInstructions,
+          parsed,
+          unlockKeyID
+        })
+      } catch (err) {
+        btmsDebug(`${callId}: customInstructions parse error (NON-FATAL)`, {
+          rawCustomInstructions,
+          err
+        })
+      }
+
+      if (!unlockKeyID) {
+        btmsDebug(`${callId}: WARNING — previous token UTXO has NO keyID (old mint). Using protocol key only.`, {})
+      }
+
+      btmsDebug(`${callId}: unlock keyID (optional)`, { unlockKeyID })
+
+      /* ------------------------------------------------------------------ */
+      /* 3) Load sender identity (current profile’s identity key)           */
+      /* ------------------------------------------------------------------ */
+
+      const { publicKey: myIdentityKey } = await this.walletClient.getPublicKey({
+        identityKey: true
+      })
+
+      btmsDebug(`${callId}: getPublicKey RESULT`, { myIdentityKey })
+
+      /* ------------------------------------------------------------------ */
+      /* 4) Build recipient + change outputs with BTMSToken.lock()          */
+      /* ------------------------------------------------------------------ */
+
+      const template = new BTMSToken(walletClient)
+      const outputs: CreateActionOutput[] = []
+
+      /* ---------------------- */
+      /* Recipient Output       */
+      /* ---------------------- */
+
+      const recipientKeyID = this.getRandomKeyID()
+
+      btmsDebug(`${callId}: RECIPIENT: building lock()`, {
         assetId,
-        amount,
-        normalizedMetadata,
-        false,
-      );
-      const lockingScriptHex =
-        typeof (lockingScriptObj as any).toHex === "function"
-          ? (lockingScriptObj as any).toHex()
-          : String(lockingScriptObj);
-      btmsDebug("issue(positional) prepared lockingScript:", {
-        isHex: isLikelyHex(lockingScriptHex),
-        preview: shortHex(lockingScriptHex, 32),
-        length: lockingScriptHex?.length,
-      });
-      // canonical BTMS beefPayload we want associated with this output
-      const beefPayload = {
-        protocolID: this.protocolID,
+        sendAmount,
+        metadataJson,
+        recipientKeyID,
+        recipient
+      })
+
+      const recipientLockScript = await template.lock(
+        PROTOCOL_ID,
+        PROTOCOL_KEY_ID,
+        'self',
         assetId,
-        amount,
-        metadata: normalizedMetadata,
-      };
-      const action: any = await walletMint(
-        lockingScriptHex,
-        this.basket,
-        this.satoshis,
-        `Mint ${assetId} (${amount})`,
-        beefPayload,
-      );
-      return {
+        sendAmount,
+        metadataJson
+      )
+
+      const recipientScriptHex = recipientLockScript.toHex() as HexString
+
+      btmsDebug(`${callId}: RECIPIENT lock() RESULT`, {
+        scriptPreview: shortHex(recipientScriptHex, 48),
+        fullLength: recipientScriptHex.length,
+        sendAmount,
+        metadataJson
+      })
+
+      /* ------------------------------------------------------------------ */
+      /* SYMMETRY TEST: ensure outgoing token is decodable (strict v2)      */
+      /* ------------------------------------------------------------------ */
+
+      try {
+        const d = this.decodeBTMSToken(recipientScriptHex)
+
+        if (!d.valid) {
+          throw new Error('decodeBTMSToken returned invalid structure for outgoing BTMS token')
+        }
+
+        if (!d.assetId || typeof d.assetId !== 'string') {
+          throw new Error('BTMS send: missing assetId in PushDrop.')
+        }
+
+        if (!Number.isFinite(d.amount) || d.amount <= 0) {
+          throw new Error('BTMS send: invalid amount in PushDrop.')
+        }
+
+        if (!d.metadata || typeof d.metadata !== 'string') {
+          throw new Error('BTMS send: missing metadata JSON in PushDrop.')
+        }
+
+        if (d.op !== 'ISSUE' && d.op !== 'TRANSFER') {
+          throw new Error(`BTMS send: malformed token — expected ISSUE/TRANSFER, got ${d.op}`)
+        }
+      } catch (e) {
+        btmsDebug(`${callId}: SYMMETRY CHECK FAILED`, { e })
+        throw new Error('BTMS send: outgoing token failed symmetry decode check.')
+      }
+
+      const recipientOutput: CreateActionOutput = {
+        satoshis: this.satoshis,
+        lockingScript: recipientScriptHex,
+        outputDescription: `Send ${sendAmount} ${tokenDisplayName}`,
+        tags: [myIdentityKey === recipient ? 'owner self' : `owner ${recipient}`] as OutputTagStringUnder300Bytes[]
+      }
+
+      // FULL new-world customInstructions
+      recipientOutput.customInstructions = JSON.stringify({
+        sender: myIdentityKey,
+        keyID: recipientKeyID,
+        amount: sendAmount,
         assetId,
-        amount,
-        metadata: normalizedMetadata,
-        beefPayload,
-        atomicBeef: action?.tx || action?.atomicBeef || action?.beef || null,
-      };
+        metadata: metadataJson
+      })
+
+      btmsDebug(`${callId}: RECIPIENT customInstructions`, {
+        customInstructions: recipientOutput.customInstructions
+      })
+
+      // 🔴 FIX: ALWAYS keep tokens inside the per-asset basket
+      // so both sender and receiver profiles can discover them.
+      recipientOutput.basket = tokenBasket
+
+      outputs.push(recipientOutput)
+
+      /* -------------------------------------------------------- */
+      /* REQUIRED: Discovery Output (IDENTICAL to issue())        */
+      /* -------------------------------------------------------- */
+
+      const discoveryTemplate = new BTMSFundingToken(walletClient)
+
+      const discoveryLockScript = await discoveryTemplate.lock(this.protocolID, this.protocolKeyID, 'self')
+
+      const discoveryLockingScriptHex = discoveryLockScript.toHex() as HexString
+
+      // Strong-typed discovery label
+      const discoveryLabel: LabelStringUnder300Bytes =
+        `${PROTOCOL} ${ASSET_ID_VERSION} ${ASSET_ID_TERM}=${assetId}` as LabelStringUnder300Bytes
+
+      const discoveryOutput: CreateActionOutput = {
+        satoshis: 1,
+        lockingScript: discoveryLockingScriptHex,
+        basket: DISCOVERY_BASKET as BasketStringUnder300Bytes,
+        outputDescription: `discovery ${discoveryLabel}`,
+        tags: ['btms-discovery'] as OutputTagStringUnder300Bytes[]
+      }
+
+      btmsDebug(`${callId}: DISCOVERY OUTPUT (send)`, {
+        discoveryLabel,
+        lockingScriptPreview: shortHex(discoveryLockingScriptHex, 48)
+      })
+
+      outputs.push(discoveryOutput)
+
+      /* ---------------------- */
+      /* Change Output          */
+      /* ---------------------- */
+
+      const changeAmount = firstAmount - sendAmount
+
+      btmsDebug(`${callId}: CHANGE: computed`, {
+        firstAmount,
+        sendAmount,
+        changeAmount
+      })
+
+      if (changeAmount > 0) {
+        const changeLockScript = await template.lock(
+          PROTOCOL_ID,
+          PROTOCOL_KEY_ID,
+          'self',
+          assetId,
+          changeAmount,
+          metadataJson
+        )
+
+        const changeScriptHex = changeLockScript.toHex() as HexString
+
+        btmsDebug(`${callId}: CHANGE lock() RESULT`, {
+          scriptPreview: shortHex(changeScriptHex, 48),
+          fullLength: changeScriptHex.length,
+          changeAmount
+        })
+
+        const changeOutput: CreateActionOutput = {
+          satoshis: this.satoshis,
+          lockingScript: changeScriptHex,
+          basket: tokenBasket,
+          outputDescription: `Keep ${changeAmount} ${tokenDisplayName}`,
+          tags: ['owner self'] as OutputTagStringUnder300Bytes[],
+          customInstructions: JSON.stringify({
+            sender: myIdentityKey,
+            keyID: this.getRandomKeyID(),
+            amount: changeAmount,
+            assetId,
+            metadata: metadataJson
+          })
+        }
+
+        btmsDebug(`${callId}: CHANGE customInstructions`, {
+          customInstructions: changeOutput.customInstructions
+        })
+
+        outputs.push(changeOutput)
+      }
+
+      /* ------------------------------------------------------------------ */
+      /* 5) createAction (protected protocol)                               */
+      /* ------------------------------------------------------------------ */
+
+      const createActionArgs: CreateActionArgs = {
+        description: `Send ${sendAmount} ${tokenDisplayName} to ${recipient}`,
+        labels: [assetId as LabelStringUnder300Bytes],
+        inputBEEF: loadedBeef.toBinary(),
+        inputs: [
+          {
+            outpoint: (first.outpoint ?? `${prevTx.id('hex')}.${inputIndex}`) as OutpointString,
+            unlockingScriptLength: 74,
+            inputDescription: `Spend ${tokenDisplayName} BTMS token`
+          }
+        ],
+        outputs,
+        options: {
+          acceptDelayedBroadcast: false,
+          randomizeOutputs: false
+        }
+      }
+
+      btmsDebug(`${callId}: createAction ARGS`, {
+        description: createActionArgs.description,
+        labels: createActionArgs.labels,
+        inputs: createActionArgs.inputs,
+        outputsCount: createActionArgs.outputs?.length ?? 0
+      })
+
+      const createActionResult = await this.walletClient.createAction(createActionArgs)
+
+      btmsDebug(`${callId}: createAction RESULT`, {
+        hasSignable: !!createActionResult.signableTransaction
+      })
+
+      const { signableTransaction } = createActionResult
+
+      if (!signableTransaction) {
+        throw new Error('BTMS send: createAction -> no signableTransaction.')
+      }
+
+      /* ------------------------------------------------------------------ */
+      /* 6) Unlocking script via PushDrop.unlock                            */
+      /* ------------------------------------------------------------------ */
+
+      const txForSigning = Transaction.fromAtomicBEEF(signableTransaction.tx)
+
+      const unlocker = new PushDrop(walletClient).unlock(PROTOCOL_ID, PROTOCOL_KEY_ID, 'self')
+
+      btmsDebug(`${callId}: unlocker.sign ARGS`, {
+        txid: txForSigning.id('hex'),
+        inputIndex: 0
+      })
+
+      const unlockingScript = await unlocker.sign(txForSigning, 0)
+
+      btmsDebug(`${callId}: unlocker.sign RESULT`, {
+        unlockingScriptPreview: shortHex(unlockingScript.toHex(), 48)
+      })
+
+      /* ------------------------------------------------------------------ */
+      /* 7) signAction (protected protocol)                                 */
+      /* ------------------------------------------------------------------ */
+
+      const signActionArgs: SignActionArgs = {
+        reference: signableTransaction.reference,
+        spends: {
+          0: { unlockingScript: unlockingScript.toHex() }
+        }
+      }
+
+      btmsDebug(`${callId}: signAction ARGS`, signActionArgs)
+
+      const signResult = await this.walletClient.signAction(signActionArgs)
+
+      btmsDebug(`${callId}: signAction RESULT`, {
+        hasTx: !!signResult.tx
+      })
+
+      if (!signResult.tx) {
+        throw new Error('BTMS send: signAction missing tx.')
+      }
+
+      const finalTxObj = Transaction.fromAtomicBEEF(signResult.tx)
+      const finalTxid = finalTxObj.id('hex') as TXIDHexString
+
+      /* ------------------------------------------------------------------ */
+      /* 8) TokenForRecipient + message-box send                            */
+      /* ------------------------------------------------------------------ */
+
+      const tokenForRecipient: TokenForRecipient = {
+        txid: finalTxid,
+        vout: 0,
+        lockingScript: recipientScriptHex,
+        amount: sendAmount,
+        satoshis: this.satoshis,
+        beefPayload: Utils.toArray(signResult.tx),
+        beef: signResult.tx,
+        keyID: recipientKeyID
+      }
+
+      btmsDebug(`${callId}: tokenForRecipient`, {
+        txid: tokenForRecipient.txid,
+        amount: tokenForRecipient.amount,
+        keyID: tokenForRecipient.keyID
+      })
+
+      /* ------------------------------------------------------------------ */
+      /* 8B) SEND MESSAGE TO RECIPIENT’S CUSTODY BOX                        */
+      /* ------------------------------------------------------------------ */
+
+      if (myIdentityKey !== recipient) {
+        const recipientCustodyBox = `btms-v2-custody-${recipient}` as LabelStringUnder300Bytes
+
+        const sendMessageArgs = {
+          recipient,
+          messageBox: recipientCustodyBox,
+          body: JSON.stringify({ token: tokenForRecipient })
+        }
+
+        btmsDebug(`${callId}: message-box sendMessage ARGS`, sendMessageArgs)
+
+        await this.tokenator.sendMessage(sendMessageArgs)
+
+        btmsDebug(`${callId}: message-box sendMessage RESULT`, { ok: true })
+      }
+
+      try {
+        onPaymentSent(tokenForRecipient)
+      } catch (err) {
+        btmsDebug(`${callId}: onPaymentSent callback threw`, { err })
+      }
+
+      /* ------------------------------------------------------------------ */
+      /* 9) Broadcast via TopicBroadcaster                                  */
+      /* ------------------------------------------------------------------ */
+
+      const broadcasterArgs = {
+        topics: ['tm_btms'],
+        options: {
+          networkPreset: 'local' as const
+        }
+      }
+
+      btmsDebug(`${callId}: TopicBroadcaster ARGS`, broadcasterArgs)
+
+      const broadcaster = new TopicBroadcaster(broadcasterArgs.topics, broadcasterArgs.options)
+
+      const broadcastResult = await broadcaster.broadcast(finalTxObj)
+
+      btmsDebug(`${callId}: broadcast RESULT`, broadcastResult)
+
+      if (broadcastResult.status !== 'success') {
+        throw new Error(`BTMS send: broadcast failed: ${(broadcastResult as any).reason}`)
+      }
+
+      btmsDebug(`${callId}: COMPLETE`, { finalTxid })
+
+      return { status: 'success', topics: {} }
+    } catch (error: any) {
+      if (error instanceof WERR_REVIEW_ACTIONS) {
+        console.error('BTMS SEND: WERR_REVIEW_ACTIONS', {
+          code: error.code,
+          message: error.message,
+          reviewActionResults: error.reviewActionResults
+        })
+      } else {
+        console.error('BTMS SEND: unexpected', error)
+      }
+
+      btmsDebug(`${callId}: FINAL ERROR`, {
+        message: error?.message,
+        stack: error?.stack
+      })
+
+      throw error
     }
-    // object style
-    const args = (rawArgs[0] || {}) as {
-      assetId?: string;
-      amount?: SatoshiValue;
-      metadata?: string | Record<string, any>;
-      keyID?: KeyIDStringUnder800Bytes;
-      counterparty?: WalletCounterparty;
-      forSelf?: boolean;
-    };
-    const {
-      assetId = `asset_${Math.random().toString(36).slice(2, 10)}`,
-      amount = 1 as SatoshiValue,
-      metadata = "",
-      keyID = "default",
-      counterparty = "self",
-      forSelf = false,
-    } = args;
-    const normalizedMetadata: string =
-      typeof metadata === "string" ? metadata : JSON.stringify(metadata ?? {});
-    const tok = new BTMSToken();
-    const lockingScriptObj = await tok.lock(
-      this.protocolID,
-      keyID,
-      counterparty,
-      assetId,
-      amount,
-      normalizedMetadata,
-      forSelf,
-    );
-    const lockingScriptHex =
-      typeof (lockingScriptObj as any).toHex === "function"
-        ? (lockingScriptObj as any).toHex()
-        : String(lockingScriptObj);
+  }
+
+  /******************************************************************************************
+   * INSTRUMENTED listAssets() — FINAL CORRECT VERSION
+   ******************************************************************************************/
+  async listAssets(includeMode: ListOutputsArgs['include'] = 'locking scripts'): Promise<Asset[]> {
+    const callId = makeDebugCallId('listAssets')
+    btmsDebug(`${callId}: START (discovery + messagebox + basket scan)`, { includeMode })
+
+    const assetIds = new Set<string>()
+    let discoveryOutputs: any[] = []
+
+    /***************************************************************************
+     * STEP A — Discovery basket (single authoritative scan)
+     ***************************************************************************/
+    try {
+      const d = await this.walletClient.listOutputs({
+        basket: DISCOVERY_BASKET,
+        include: 'entire transactions',
+        includeLabels: true,
+        seekPermission: true,
+        limit: 5000
+      })
+
+      discoveryOutputs = d.outputs ?? []
+
+      btmsDebug(`${callId}: discovery basket result`, {
+        count: discoveryOutputs.length
+      })
+
+      for (const o of discoveryOutputs) {
+        const labels = (o as any).labels ?? []
+        const label = labels.find(l => l.startsWith(ASSET_PROTOCOL))
+        if (label) {
+          const id = label.substring(ASSET_PROTOCOL.length).trim()
+          if (id) {
+            assetIds.add(id)
+            btmsDebug(`${callId}: discovered assetId from label`, { id })
+          }
+        }
+      }
+    } catch (err) {
+      btmsDebug(`${callId}: discovery scan FAILED`, { err })
+    }
+
+    /***************************************************************************
+     * STEP B — Incoming messagebox payments (STRICT)
+     ***************************************************************************/
+    let incoming: any[] = []
+    try {
+      incoming = await this.listIncomingPayments()
+      btmsDebug(`${callId}: incoming payments fetched`, {
+        count: incoming.length,
+        preview: incoming.slice(0, 3)
+      })
+    } catch (err) {
+      btmsDebug(`${callId}: incoming fetch FAILED`, { err })
+      incoming = []
+    }
+
+    const filteredIncoming: any[] = []
+    const currentIdentity = this.currentIdentity
+
+    for (const msg of incoming) {
+      const hex = msg.lockingScriptHex || msg.lockingScript || msg.locking_script
+
+      if (!hex) continue
+
+      const decoded = this.decodeBTMSToken(hex)
+      if (!decoded.valid) continue
+
+      filteredIncoming.push(decoded)
+
+      if (decoded.assetId) {
+        assetIds.add(decoded.assetId)
+        btmsDebug(`${callId}: discovered assetId from incoming message`, { id: decoded.assetId })
+      }
+    }
+
+    /***************************************************************************
+     * STEP C — Pull per-asset basket explicitly (NO PREFIX SCAN)
+     ***************************************************************************/
+    for (const id of Array.from(assetIds)) {
+      const basketName = `${this.basketPrefix} ${ASSET_ID_VERSION} ${id}` as BasketStringUnder300Bytes
+      btmsDebug(`${callId}: FETCH basket outputs`, { basketName })
+
+      try {
+        const r = await this.walletClient.listOutputs({
+          basket: basketName,
+          include: 'locking scripts',
+          includeLabels: true,
+          includeTags: true,
+          seekPermission: true,
+          limit: 5000
+        })
+
+        btmsDebug(`${callId}: basket outputs`, {
+          basketName,
+          total: r.totalOutputs
+        })
+
+        if (r.totalOutputs === 0) {
+          btmsDebug(`${callId}: WARNING — empty basket for discovered id`, { id })
+        }
+      } catch (err) {
+        btmsDebug(`${callId}: basket fetch FAILED`, { basketName, err })
+      }
+    }
+
+    /***************************************************************************
+     * STEP D — Construct Asset models
+     ***************************************************************************/
+    const discoveredList = [...assetIds]
+    btmsDebug(`${callId}: FINAL discovered assetIds`, discoveredList)
+
+    const assets: Record<string, Asset> = {}
+    for (const id of discoveredList) {
+      assets[id] = {
+        assetId: id,
+        name: id,
+        balance: 0,
+        metadata: '',
+        hasPendingIncoming: false
+      }
+    }
+
+    for (const inc of filteredIncoming) {
+      if (inc.assetId && assets[inc.assetId]) {
+        assets[inc.assetId].hasPendingIncoming = true
+        btmsDebug(`${callId}: mark pending incoming`, { assetId: inc.assetId })
+      }
+    }
+
+    /***************************************************************************
+     * STEP E — Compute balance
+     ***************************************************************************/
+    for (const id of discoveredList) {
+      btmsDebug(`${callId}: computing balance for`, { id })
+      const bal = await this.getBalance(id)
+      assets[id].balance = bal
+      btmsDebug(`${callId}: balance computed`, { id, bal })
+    }
+
+    const finalList = Object.values(assets)
+
+    btmsDebug(`${callId}: FINAL ASSET LIST`, {
+      count: finalList.length,
+      finalList
+    })
+
+    return finalList
+  }
+
+  /******************************************************************************************
+   * INSTRUMENTED listIncomingPayments()
+   ******************************************************************************************/
+  /******************************************************************************************
+   * INSTRUMENTED listIncomingPayments() — FINAL & CORRECT
+   ******************************************************************************************/
+  async listIncomingPayments(assetId?: string): Promise<IncomingPayment[]> {
+    const callId = makeDebugCallId('listIncomingPayments')
+    btmsDebug(`${callId}: START`, { filterAssetId: assetId ?? '(ALL)' })
+
+    /***************************************************************************
+     * STEP 1 — Active Identity
+     ***************************************************************************/
+    let myIdentityKey: string
+    try {
+      const { publicKey } = await this.walletClient.getPublicKey({ identityKey: true })
+      myIdentityKey = publicKey
+    } catch (err) {
+      btmsDebug(`${callId}: getPublicKey FAILED`, { err })
+      return []
+    }
+
+    btmsDebug(`${callId}: ACTIVE IDENTITY`, { myIdentityKey })
+
+    /***************************************************************************
+     * STEP 2 — Custody box name
+     ***************************************************************************/
+    const custodyBox = `btms-v2-custody-${myIdentityKey}`
+    btmsDebug(`${callId}: CUSTODY BOX`, { custodyBox })
+
+    /***************************************************************************
+     * STEP 3 — Raw message fetch
+     ***************************************************************************/
+    let incoming: any[] = []
+    try {
+      incoming = await this.tokenator.listMessages({ messageBox: custodyBox })
+    } catch (err) {
+      btmsDebug(`${callId}: listMessages FAILED`, { err })
+      return []
+    }
+
+    btmsDebug(`${callId}: RAW MESSAGE COUNT`, { count: incoming.length })
     btmsDebug(
-      "issue(object) prepared lockingScript:",
-      JSON.stringify({
-        isHex: isLikelyHex(lockingScriptHex),
-        preview: shortHex(lockingScriptHex, 32),
-        length: lockingScriptHex?.length,
-      }),
-    );
-    const beefPayload = {
-      protocolID: this.protocolID,
+      `${callId}: RAW MESSAGES`,
+      incoming.map(m => ({
+        messageId: m.messageId,
+        sender: m.sender,
+        bodyType: typeof m.body,
+        bodyPreview: typeof m.body === 'string' ? m.body.slice(0, 100) : JSON.stringify(m.body).slice(0, 100)
+      }))
+    )
+
+    /***************************************************************************
+     * STEP 4 — Parse messages → IncomingPayment[]
+     ***************************************************************************/
+    const results: IncomingPayment[] = []
+
+    for (const msg of incoming) {
+      btmsDebug(`${callId}: PROCESSING MESSAGE`, { messageId: msg.messageId })
+
+      /***** Parse JSON body safely *****/
+      let parsed
+      try {
+        parsed = typeof msg.body === 'string' ? JSON.parse(msg.body) : msg.body
+      } catch (e) {
+        btmsDebug(`${callId}: PARSE ERROR`, {
+          messageId: msg.messageId,
+          e,
+          body: msg.body
+        })
+        continue
+      }
+
+      if (!parsed || !parsed.token) {
+        btmsDebug(`${callId}: SKIP — NO TOKEN`, { messageId: msg.messageId })
+        continue
+      }
+
+      const t = parsed.token
+
+      btmsDebug(`${callId}: TOKEN RAW`, {
+        messageId: msg.messageId,
+        tPreview: {
+          txid: t.txid,
+          vout: t.vout,
+          keyID: t.keyID,
+          lockingScriptPreview: (t.lockingScript || t.lockingScriptHex)?.slice?.(0, 48)
+        }
+      })
+
+      /***** Support both lockingScript and lockingScriptHex *****/
+      const lsHex = t.lockingScript || t.lockingScriptHex
+
+      if (!lsHex) {
+        btmsDebug(`${callId}: SKIP — NO lockingScript`, { messageId: msg.messageId })
+        continue
+      }
+
+      /***** Decode the PushDrop *****/
+      const decoded = this.decodeBTMSToken(lsHex)
+
+      btmsDebug(`${callId}: DECODED TOKEN`, {
+        messageId: msg.messageId,
+        decoded
+      })
+
+      if (!decoded.valid) continue
+      if (assetId && decoded.assetId !== assetId) continue
+
+      /***** Normalize BEEF payload *****/
+      let beefBinary: number[] | undefined
+
+      if (t.beefPayload && Array.isArray(t.beefPayload)) {
+        beefBinary = t.beefPayload
+      } else if (t.beef instanceof Uint8Array) {
+        beefBinary = Array.from(t.beef)
+      } else {
+        beefBinary = undefined
+        btmsDebug(`${callId}: WARNING — no valid beefPayload/beef`, {
+          messageId: msg.messageId
+        })
+      }
+
+      /***** Construct normalized IncomingPayment *****/
+      results.push({
+        txid: t.txid,
+        vout: t.vout ?? 0,
+        lockingScript: lsHex,
+        amount: decoded.amount,
+        assetId: decoded.assetId,
+        keyID: t.keyID,
+        sender: msg.sender,
+        messageId: msg.messageId,
+        satoshis: t.satoshis,
+        tx: beefBinary!
+      })
+    }
+
+    btmsDebug(`${callId}: COMPLETE`, { count: results.length })
+    return results
+  }
+
+  async acceptIncomingPayment(assetId: string, payment: IncomingPayment): Promise<boolean> {
+    const callId = makeDebugCallId('acceptIncomingPayment')
+
+    btmsDebug(`${callId}: START`, {
+      expectedAsset: assetId,
+      rawPayment: {
+        txid: payment.txid,
+        vout: payment.vout,
+        satoshis: payment.satoshis,
+        sender: payment.sender,
+        keyID: payment.keyID,
+        hasTx: !!(payment as any).tx,
+        hasBeefPayload: (payment as any).beefPayload !== undefined,
+        hasBeef: (payment as any).beef !== undefined,
+        messageId: payment.messageId
+      }
+    })
+
+    // ---------------------------------------------------------------------------
+    // 0) Ensure identity is switched BEFORE internalization
+    // ---------------------------------------------------------------------------
+    await this.switchIdentityToActiveProfile()
+
+    // ---------------------------------------------------------------------------
+    // 1) Extract lockingScript
+    // ---------------------------------------------------------------------------
+    const scriptHex = payment.lockingScript
+    if (!scriptHex) {
+      btmsDebug(`${callId}: ERROR missing lockingScript`)
+      return false
+    }
+    btmsDebug(`${callId}: lockingScript length`, { length: scriptHex.length })
+
+    // ---------------------------------------------------------------------------
+    // 2) STRICT PushDrop decoding using reusable decodeBTMSToken()
+    // ---------------------------------------------------------------------------
+    const decodedToken = this.decodeBTMSToken(scriptHex)
+
+    btmsDebug(`${callId}: decodeBTMSToken result`, decodedToken)
+
+    if (!decodedToken.valid) {
+      btmsDebug(`${callId}: ERROR invalid decoded token`, { decodedToken })
+      throw new Error('acceptIncomingPayment: invalid BTMS token script')
+    }
+
+    const tokenName = decodedToken.assetId
+    const amountStr = String(decodedToken.amount)
+    const opField = decodedToken.op
+    const metadataJson = decodedToken.metadata ?? '{}'
+
+    btmsDebug(`${callId}: STRICT FIELD ORDER`, {
+      tokenName,
+      opField,
+      amountStr,
+      metadataJson
+    })
+
+    if (opField !== 'ISSUE') {
+      btmsDebug(`${callId}: ERROR opField != ISSUE`, { opField })
+      throw new Error('acceptIncomingPayment: unsupported op (must be ISSUE)')
+    }
+
+    // Validate assetId from caller (UI → BTMS)
+    const canonicalAssetId = tokenName
+
+    if (assetId && canonicalAssetId !== assetId) {
+      btmsDebug(`${callId}: ERROR asset mismatch`, {
+        assetId,
+        canonicalAssetId
+      })
+      return false
+    }
+
+    btmsDebug(`${callId}: canonicalAssetId OK`, { canonicalAssetId })
+
+    // ---------------------------------------------------------------------------
+    // 3) Normalize BEEF from payment.{tx, beef, beefPayload}
+    // ---------------------------------------------------------------------------
+    let rawBeef: any = (payment as any).tx ?? (payment as any).beef ?? (payment as any).beefPayload ?? undefined
+
+    btmsDebug(`${callId}: rawBeef presence`, {
+      type: typeof rawBeef,
+      isArray: Array.isArray(rawBeef),
+      size: rawBeef ? rawBeef.length : null
+    })
+
+    const beef = await this.toAtomicBeef(rawBeef, callId, 'acceptIncomingPayment/beef')
+
+    if (!beef) {
+      btmsDebug(`${callId}: toAtomicBeef FAILED`)
+      return false
+    }
+
+    btmsDebug(`${callId}: atomicBeef created`, {
+      beefLength: beef.length
+    })
+
+    // ---------------------------------------------------------------------------
+    // 4) Parse customInstructions
+    // ---------------------------------------------------------------------------
+    let parsedCI: any = {}
+    try {
+      const rawCI = (payment as any).customInstructions
+      if (rawCI !== undefined) {
+        parsedCI = typeof rawCI === 'string' ? JSON.parse(rawCI) : rawCI
+      }
+    } catch (e) {
+      btmsDebug(`${callId}: customInstructions parse FAILED`, { error: e })
+    }
+
+    btmsDebug(`${callId}: customInstructions`, { parsedCI })
+
+    if (parsedCI.assetId && parsedCI.assetId !== canonicalAssetId) {
+      btmsDebug(`${callId}: ERROR CI asset mismatch`, {
+        canonicalAssetId,
+        ciAssetId: parsedCI.assetId
+      })
+      return false
+    }
+
+    if (parsedCI.keyID && payment.keyID && parsedCI.keyID !== payment.keyID) {
+      btmsDebug(`${callId}: ERROR CI keyID mismatch`, {
+        ciKeyID: parsedCI.keyID,
+        paymentKeyID: payment.keyID
+      })
+      return false
+    }
+
+    // ---------------------------------------------------------------------------
+    // 5) Identity sanity-check (optional)
+    // ---------------------------------------------------------------------------
+    try {
+      const { publicKey: myIdentityKey } = await this.walletClient.getPublicKey({
+        identityKey: true
+      })
+
+      const lockingKey = (decodedToken as any).lockingPublicKey as string | undefined
+
+      btmsDebug(`${callId}: identity check`, {
+        lockingKey,
+        myIdentityKey
+      })
+
+      if (lockingKey && lockingKey !== myIdentityKey) {
+        btmsDebug(`${callId}: WARNING identity mismatch`, {
+          lockingKey,
+          myIdentityKey
+        })
+      }
+    } catch (e) {
+      btmsDebug(`${callId}: identity check skipped`, { error: e })
+    }
+
+    // ---------------------------------------------------------------------------
+    // 6) Log verified token details
+    // ---------------------------------------------------------------------------
+    let parsedMeta: any = {}
+    try {
+      parsedMeta = JSON.parse(metadataJson)
+    } catch {
+      // ignore JSON errors
+    }
+    const logicalAmount = Number(amountStr)
+
+    btmsDebug(`${callId}: verified incoming token`, {
+      assetId: canonicalAssetId,
+      amount: logicalAmount,
+      name: parsedMeta?.name ?? 'Token',
+      satoshis: payment.satoshis
+    })
+
+    // ---------------------------------------------------------------------------
+    // 7) INTERNALIZE — TWO-STEP PROCESS (wallet payment → basket insertion)
+    // ---------------------------------------------------------------------------
+
+    // -------------------------------------------------------------
+    // CORRECT, TYPE-SAFE INTERNALIZE ACTION FOR BASKET INSERTION
+    // -------------------------------------------------------------
+    const basketName = `btmstoken v1 ${canonicalAssetId}` as BasketStringUnder300Bytes
+
+    const insertArgs: InternalizeActionArgs = {
+      tx: beef,
+      outputs: [
+        {
+          outputIndex: payment.vout as PositiveIntegerOrZero,
+          protocol: 'basket insertion',
+          insertionRemittance: {
+            basket: basketName
+          }
+        }
+      ],
+      description: `Insert ${canonicalAssetId} token` as DescriptionString5to50Bytes,
+      seekPermission: true
+    }
+
+    await this.walletClient.internalizeAction(insertArgs)
+    // ---------------------------------------------------------
+    // FIX – Mark this incoming message as CONSUMED so UI stops showing it
+    // ---------------------------------------------------------
+    if (payment.messageId) {
+      payment.stillPending = false
+    }
+
+    // Remove from local cached incoming list, if present
+    if (this._lastIncomingResult && Array.isArray(this._lastIncomingResult)) {
+      this._lastIncomingResult = this._lastIncomingResult.filter(x => x.messageId !== payment.messageId)
+    }
+
+    btmsDebug(`${callId}: FIX applied – message removed from local cache`, {
+      messageId: payment.messageId
+    })
+
+    // ---------------------------------------------------------------------------
+    // 8) TRACE — inspect wallet outputs inside this basket
+    // ---------------------------------------------------------------------------
+    try {
+      const basketName = `btmstoken v1 ${canonicalAssetId}`
+      btmsDebug(`${callId}: listOutputs for basket`, { basketName })
+
+      const outputs = await this.walletClient.listOutputs({
+        basket: basketName as BasketStringUnder300Bytes,
+        include: 'locking scripts',
+        includeTags: true,
+        includeLabels: true,
+        seekPermission: true,
+        limit: 10000
+      })
+
+      btmsDebug(`${callId}: listOutputs result`, {
+        basketName,
+        total: outputs.totalOutputs,
+        outputs: outputs.outputs.map(o => ({
+          outpoint: o.outpoint,
+          satoshis: o.satoshis,
+          hasScript: !!o.lockingScript
+        }))
+      })
+    } catch (e) {
+      btmsDebug(`${callId}: ERROR during listOutputs trace`, { error: e })
+    }
+
+    // ---------------------------------------------------------------------------
+    // 9) VERIFY — listAssets() confirms UTXO accessible
+    // ---------------------------------------------------------------------------
+    const assets = await this.listAssets('locking scripts')
+
+    btmsDebug(`${callId}: listAssets snapshot`, {
+      count: assets.length,
+      assetIds: assets.map(a => a.assetId)
+    })
+
+    const match = assets.find(a => a.assetId === canonicalAssetId)
+
+    if (!match) {
+      btmsDebug(`${callId}: ERROR no matching asset in listAssets() after internalize`, {
+        canonicalAssetId,
+        assets
+      })
+      // Again: DO NOT ACK — let the user retry.
+      return false
+    }
+
+    btmsDebug(`${callId}: VERIFIED asset present in listAssets`, { match })
+
+    // ---------------------------------------------------------------------------
+    // 10) ACKNOWLEDGE MESSAGE — ONLY NOW (after checks)
+    // ---------------------------------------------------------------------------
+    if (payment.messageId) {
+      btmsDebug(`${callId}: ACKNOWLEDGING messageId`, {
+        messageId: payment.messageId
+      })
+
+      await this.tokenator.acknowledgeMessage({
+        messageIds: [payment.messageId]
+      })
+
+      btmsDebug(`${callId}: message ACKED`, {
+        messageId: payment.messageId
+      })
+    } else {
+      btmsDebug(`${callId}: no messageId to ACK`)
+    }
+
+    // ---------------------------------------------------------------------------
+    // 11) DONE
+    // ---------------------------------------------------------------------------
+    btmsDebug(`${callId}: COMPLETE`, {
+      assetId: canonicalAssetId,
+      accepted: true
+    })
+
+    return true
+  }
+
+  // ---------------------------------------------------------------
+  // listIncomingPayments() — With Diagnostic Enrichment
+  // ---------------------------------------------------------------
+
+  // ----------------------------------------------------
+  // Helper: safe double parse for legacy messages
+  // ----------------------------------------------------
+  private safeDoubleParse(s: string): any {
+    try {
+      const once = JSON.parse(s)
+      if (typeof once === 'string') {
+        return JSON.parse(once)
+      }
+      return once
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Refund an incoming BTMS token back to sender.
+   * (New-world createAction → signAction pattern)
+   */
+  async refundIncomingTransaction(assetId: string, payment: IncomingPayment): Promise<SubmitResult> {
+    const callId = makeDebugCallId('refundIncomingTransaction')
+    btmsDebug(`${callId}: start`, {
       assetId,
-      amount,
-      metadata: normalizedMetadata,
-    };
-    const action: any = await walletMint(
-      lockingScriptHex,
-      this.basket,
-      this.satoshis,
-      `Mint ${assetId} (${amount})`,
-      beefPayload,
-    );
+      txid: payment.txid,
+      vout: payment.vout,
+      sender: payment.sender
+    })
+
+    // ------------------------------------------------------------
+    // 1) Decode BTMS token from lockingScript (HEX)
+    // ------------------------------------------------------------
+    const d = this.decodeBTMSToken(payment.lockingScript)
+
+    if (!d.valid) {
+      btmsDebug(`${callId}: decodeBTMSToken FAILED`, { lockingScript: payment.lockingScript })
+      throw new Error('refundIncomingTransaction: invalid BTMS token script')
+    }
+
+    // d = { valid, assetId, amount, metadata, op }
+    btmsDebug(`${callId}: decodeBTMSToken RESULT`, d)
+
+    // STRICT v2 rules
+    if (d.op !== 'ISSUE') {
+      throw new Error(`refundIncomingTransaction: unsupported op "${d.op}" (must be ISSUE)`)
+    }
+
+    const logicalAmount = d.amount
+    const metadataJson = d.metadata ?? '{}'
+
+    if (!Number.isFinite(logicalAmount) || logicalAmount <= 0) {
+      throw new Error('refundIncomingTransaction: logical token amount is invalid or non-positive')
+    }
+
+    // Safe-parse metadata JSON
+    let parsedMetadata: { name?: string } = {}
+    try {
+      parsedMetadata = JSON.parse(metadataJson)
+    } catch {
+      // ignore, use empty object
+    }
+
+    btmsDebug(`${callId}: decoded`, {
+      logicalAmount,
+      metadata: parsedMetadata
+    })
+
+    // ------------------------------------------------------------
+    // 2) Validate we have the prior transaction BEEF
+    // ------------------------------------------------------------
+
+    let prevTx: Transaction
+
+    if (!payment.tx) {
+      throw new Error('refundIncomingTransaction: Missing BEEF data on payment.tx.')
+    }
+
+    let prevBeef: Beef
+    try {
+      prevBeef = Beef.fromBinary(payment.tx as any)
+      prevTx = Transaction.fromAtomicBEEF(prevBeef.toBinary())
+    } catch (e) {
+      btmsDebug(`${callId}: failed to parse BEEF`, { error: e })
+      throw new Error('refundIncomingTransaction: Invalid prior transaction BEEF.')
+    }
+
+    const template = new BTMSToken()
+    const ownerKeyID = payment.keyID
+    const txForSigning = prevTx
+
+    // ------------------------------------------------------------
+    // 3) Build refund output back to original sender
+    // ------------------------------------------------------------
+
+    const refundScriptHex = (
+      await template.lock(this.protocolID, ownerKeyID, payment.sender, assetId, logicalAmount, metadataJson)
+    ).toHex() as HexString
+
+    const outputs: CreateActionOutput[] = [
+      {
+        satoshis: payment.satoshis,
+        lockingScript: refundScriptHex,
+        outputDescription: `Refund ${logicalAmount} ${parsedMetadata.name ?? 'BTMS token'} to sender`,
+        tags: ['btms', 'refund'] as OutputTagStringUnder300Bytes[]
+      }
+    ]
+
+    btmsDebug(`${callId}: built refund outputs`, {
+      outputCount: outputs.length
+    })
+
+    // ------------------------------------------------------------
+    // 4) Create the action using the original tx as input
+    // ------------------------------------------------------------
+
+    const outpoint = `${payment.txid}.${payment.vout}` as OutpointString
+
+    const { signableTransaction } = await this.walletClient.createAction({
+      description: `Refund ${logicalAmount} ${parsedMetadata.name ?? 'BTMS token'} to sender`,
+      labels: [assetId as LabelStringUnder300Bytes],
+      inputBEEF: prevBeef.toBinary(),
+      inputs: [
+        {
+          outpoint,
+          unlockingScriptLength: 74,
+          inputDescription: 'Spend incoming BTMS token for refund'
+        }
+      ],
+      outputs,
+      options: {
+        acceptDelayedBroadcast: false,
+        randomizeOutputs: false
+      }
+    } as CreateActionArgs)
+
+    if (!signableTransaction) {
+      throw new Error('refundIncomingTransaction: createAction missing signableTransaction')
+    }
+
+    // ------------------------------------------------------------
+    // 5) Build unlocking script for the input using PushDrop.unlock
+    // ------------------------------------------------------------
+
+    const txToSign = Transaction.fromAtomicBEEF(signableTransaction.tx as AtomicBEEF)
+
+    const unlocker = new PushDrop(walletClient).unlock(this.protocolID, ownerKeyID, 'self')
+    const unlockingScript = await unlocker.sign(txToSign, 0)
+
+    btmsDebug(`${callId}: built unlockingScript`, {
+      length: unlockingScript.toHex().length
+    })
+
+    const signResult = await this.walletClient.signAction({
+      reference: signableTransaction.reference,
+      spends: {
+        0: { unlockingScript: unlockingScript.toHex() }
+      }
+    } as SignActionArgs)
+
+    if (!signResult.tx) {
+      throw new Error('refundIncomingTransaction: signAction missing tx field')
+    }
+
+    const finalTx = Transaction.fromAtomicBEEF(signResult.tx as AtomicBEEF)
+    const finalTxid = finalTx.id('hex') as TXIDHexString
+
+    btmsDebug(`${callId}: built refund tx`, { txid: finalTxid })
+
+    // ------------------------------------------------------------
+    // 6) Broadcast via TopicBroadcaster
+    // ------------------------------------------------------------
+
+    const broadcaster = new TopicBroadcaster(['tm_btms'], {
+      networkPreset: 'local'
+    })
+
+    const broadcastResult = await broadcaster.broadcast(finalTx)
+    btmsDebug(`${callId}: broadcastResult`, {
+      status: broadcastResult.status,
+      reason: (broadcastResult as any).reason
+    })
+
+    if (broadcastResult.status !== 'success') {
+      const reason = (broadcastResult as any).reason ?? 'unknown'
+      throw new Error(`refundIncomingTransaction: broadcast failed: ${reason}`)
+    }
+
+    // ------------------------------------------------------------
+    // 7) ACK the original peer-serv message, if present
+    // ------------------------------------------------------------
+
+    if (payment.messageId) {
+      await this.tokenator.acknowledgeMessage({
+        messageIds: [payment.messageId]
+      })
+    }
+
+    btmsDebug(`${callId}: refund complete`, { txid: finalTxid })
+
+    // We don't get topics from the overlay in new-world, so we keep this
+    // compatible with the old SubmitResult shape.
+    return {
+      status: 'success',
+      topics: {}
+    }
+  }
+
+  async getTransactions(
+    assetId: string,
+    limit: number,
+    offset: number
+  ): Promise<{
+    transactions: {
+      date: string
+      amount: number
+      txid: string
+      counterparty: WalletCounterparty
+    }[]
+  }> {
+    const callId = makeDebugCallId('getTransactions')
+    btmsDebug(`${callId}: start`, { assetId, limit, offset })
+
+    // -------------------------------------------------------------
+    // Resolve my identity key (used ONLY when inferring counterparty)
+    // -------------------------------------------------------------
+    const { publicKey: myIdentityKey } = await this.walletClient.getPublicKey({
+      identityKey: true
+    })
+
+    // -------------------------------------------------------------
+    // listActions – new-world compatible call
+    // -------------------------------------------------------------
+    const actions = await this.walletClient.listActions({
+      labels: [assetId.replace('.', ' ')],
+      limit,
+      offset
+    })
+
+    // -------------------------------------------------------------
+    // actions.actions is the correct list
+    // -------------------------------------------------------------
+    const txs = actions.actions.map(a => {
+      // -----------------------------------------------------------
+      // NEW-WORLD RULE:
+      //   • No per-input tags
+      //   • No PushDrop decode on inputs
+      //   • No owner fields
+      //
+      // Amount must be inferred from:
+      //   a.isOutgoing ? (negative) : (positive)
+      //   and the token quantity we issued/redeemed.
+      //
+      // For BTMS: each action corresponds to exactly one transfer.
+      // -----------------------------------------------------------
+
+      let quantity = 0
+
+      // -----------------------------------------------------------
+      // Decode BTMS quantity from ANY output that contains a BTMS script
+      // -----------------------------------------------------------
+      const outputs = a.outputs ?? []
+      for (const output of outputs) {
+        const scriptSource = (output as any).lockingScript ?? (output as any).outputScript ?? null
+
+        if (!scriptSource) continue
+
+        const scriptHex = this.toLockingScriptHex(scriptSource, callId, 'getTransactions/outputs')
+        if (!scriptHex) continue
+
+        let decoded
+        try {
+          decoded = PushDrop.decode(LockingScript.fromHex(scriptHex))
+        } catch {
+          continue // not a BTMS script
+        }
+
+        const fields = decoded.fields.map(f => Utils.toUTF8(f))
+        if (fields.length < 2) continue
+
+        const qty = Number(fields[1])
+        if (!Number.isFinite(qty)) continue
+
+        quantity = qty
+        break // one BTMS field per tx
+      }
+
+      // If we could not decode, we record 0
+      const amount = a.isOutgoing ? -quantity : quantity
+
+      // -----------------------------------------------------------
+      // Counterparty:
+      //   • If outgoing → unknown-recipient
+      //   • If incoming → myself (wallet UI convention)
+      // -----------------------------------------------------------
+      const counterparty: WalletCounterparty = a.isOutgoing
+        ? ('unknown-recipient' as WalletCounterparty)
+        : (myIdentityKey as WalletCounterparty)
+
+      return {
+        // No timestamp/created_at available → synthetic
+        date: new Date().toISOString(),
+        amount,
+        txid: a.txid,
+        counterparty
+      }
+    })
+
+    return {
+      ...actions,
+      transactions: txs
+    }
+  }
+
+  /**
+   * Cross-verify incoming token message against overlay content.
+   *
+   * @returns { verified: boolean, reason?: string }
+   */
+  /**
+   * Cross-verify an incoming BTMS token against the LARS overlay.
+   *
+   * Uses new-world LookupResolver correctly:
+   *   const resolver = new LookupResolver("ls_btms");
+   *   const result = await resolver.search({ txid, vout });
+   */
+  private verifyIncomingToken(
+    scriptHex: string,
+    expectedAssetId: string,
+    payment: IncomingPayment
+  ): { assetId: string; amount: number; metadata: string } {
+    const callId = makeDebugCallId('verifyIncomingToken')
+
+    // ------------------------------------------------------------
+    // 1) Extract the PushDrop segment from wrapped lockingScript
+    // ------------------------------------------------------------
+    let purePushdropHex: string
+
+    try {
+      const asm = LockingScript.fromHex(scriptHex).toASM().split(' ')
+      const idx = asm.indexOf('OP_0') // first PushDrop marker
+
+      if (idx === -1) {
+        throw new Error('PushDrop segment not found')
+      }
+
+      const pushdropAsm = asm.slice(idx).join(' ')
+      purePushdropHex = LockingScript.fromASM(pushdropAsm).toHex()
+
+      btmsDebug(`${callId}: extracted PushDrop`, {
+        idx,
+        pushdropAsmPreview: pushdropAsm.slice(0, 120) + '...',
+        purePushdropHexPreview: purePushdropHex.slice(0, 120) + '...'
+      })
+    } catch (e) {
+      btmsDebug(`${callId}: extract FAILED`, { error: e })
+      throw new Error('verifyIncomingToken: cannot isolate PushDrop segment')
+    }
+
+    // ------------------------------------------------------------
+    // 2) Canonical BTMS v2 decode
+    // ------------------------------------------------------------
+    const d = this.decodeBTMSToken(purePushdropHex)
+
+    btmsDebug(`${callId}: decodeBTMSToken result`, d)
+
+    if (!d.valid) {
+      throw new Error('verifyIncomingToken: invalid BTMS token script')
+    }
+
+    // ------------------------------------------------------------
+    // 3) Strict v2 validation
+    // ------------------------------------------------------------
+    if (d.op !== 'ISSUE') {
+      throw new Error(`verifyIncomingToken: unsupported op "${d.op}"`)
+    }
+
+    if (!Number.isFinite(d.amount) || d.amount <= 0) {
+      throw new Error(`verifyIncomingToken: invalid amount "${d.amount}"`)
+    }
+
+    if (typeof d.metadata !== 'string') {
+      throw new Error('verifyIncomingToken: metadata must be JSON string')
+    }
+
+    // ------------------------------------------------------------
+    // 4) Asset validation
+    // ------------------------------------------------------------
+    const assetId = d.assetId
+
+    if (assetId !== expectedAssetId) {
+      throw new Error(`verifyIncomingToken: asset mismatch. Expected ${expectedAssetId}, got ${assetId}`)
+    }
+
+    // ------------------------------------------------------------
+    // 5) Return normalized structure
+    // ------------------------------------------------------------
     return {
       assetId,
-      amount,
-      metadata: normalizedMetadata,
-      beefPayload,
-      atomicBeef: action?.tx || action?.atomicBeef || action?.beef || null,
-    };
+      amount: d.amount,
+      metadata: d.metadata
+    }
+  }
+
+  // async proveOwnership(assetId: string, amount: number, verifier: string): Promise<OwnershipProof> {
+  //   // Get a list of tokens
+  //   const myTokens = await this.getTokens(assetId, true)
+  //   let amountProven = 0
+  //   const provenTokens: {
+  //     output: GetTransactionOutputResult;
+  //     linkage: SpecificKeyLinkageResult;
+  //   }[] = []
+  //   const myIdentityKey = await getPublicKey({ identityKey: true })
+  //   // Go through the list
+  //   for (const token of myTokens) {
+  //     // Obtain key linkage for each token
+  //     const parsedInstructions = JSON.parse(token.customInstructions as string)
+  //     const linkage = await revealKeyLinkage({ // TODO: signing strategy
+  //       mode: 'specific',
+  //       counterparty: this.getCounterpartyFromInstructions(parsedInstructions),
+  //       protocolID: this.protocolID,
+  //       keyID: this.getKeyIDFromInstructions(parsedInstructions),
+  //       verifier,
+  //       description: 'Prove token ownership'
+  //     })
+  //     provenTokens.push({
+  //       output: token,
+  //       linkage: linkage as SpecificKeyLinkageResult
+  //     })
+  //     // Increment the amount counter each time
+  //     const t = pushdrop.decode({
+  //       script: token.outputScript,
+  //       fieldFormat: 'utf8'
+  //     })
+  //     amountProven += Number(t.fields[1])
+  //     // Break if the amount counter goes above the amount to prove
+  //     if (amountProven > amount) break
+  //   }
+  //   // After the loop check the counter
+  //   // Error if we have not proven the full amount
+  //   if (amountProven < amount) {
+  //     throw new Error('User does not have amount of asset requested for ownership oroof.')
+  //   }
+  //   // Return the proof
+  //   return {
+  //     prover: myIdentityKey,
+  //     verifier,
+  //     tokens: provenTokens,
+  //     amount,
+  //     assetId
+  //   }
+  // }
+
+  // async verifyOwnership(proof: OwnershipProof, useAnyoneKey = false): Promise<boolean> {
+  //   // Keep count of amount proven
+  //   let amountProven = 0
+  //   // Go through all tokens
+  //   for (const token of proof.tokens) {
+  //     // Increment the amount counter each time
+  //     const t = pushdrop.decode({
+  //       script: token.output.outputScript,
+  //       fieldFormat: 'utf8'
+  //     })
+  //     amountProven += Number(t.fields[1])
+  //     // Ensure token linkage is verified for prover
+  //     const valid = await this.verifyLinkageForProver(token.linkage, t.lockingPublicKey, useAnyoneKey)
+  //     if (!valid) {
+  //       throw new Error('Invalid key linkage for token prover.')
+  //     }
+  //     // Ensure the proof belongs to the prover
+  //     if (token.linkage.prover !== proof.prover) {
+  //       throw new Error('Prover tried to prove tokens that were not theirs.')
+  //     }
+  //     // Ensure token is on overlay
+  //     const resultFromOverlay = await this.findFromTokenOverlay({
+  //       txid: token.output.txid,
+  //       vout: token.output.vout
+  //     })
+  //     if (resultFromOverlay.length < 1) {
+  //       throw new Error('Claimed token is not on the overlay.')
+  //     }
+  //   }
+  //   // Check amount in proof against total
+  //   // Error if amounts mismatch
+  //   if (amountProven !== proof.amount) {
+  //     throw new Error('Amount of tokens in proof not as claimed.')
+  //   }
+  //   // Return true as proof is valid
+  //   return true
+  // }
+
+  // /**
+  //  * Checks that an asset ID is in the correct format
+  //  * @param assetId Asset ID to validate
+  //  * @returns a boolean indicating asset ID validity
+  //  */
+  // validateAssetId(assetId: string): boolean {
+  //   if (typeof assetId !== 'string') {
+  //     return false
+  //   }
+  //   const [first, second, third] = assetId.split('.')
+  //   if (typeof first !== 'string' || typeof second !== 'string') {
+  //     return false
+  //   }
+  //   if (typeof third !== 'undefined') {
+  //     return false
+  //   }
+  //   if (!/^[0-9a-fA-F]{64}$/.test(first)) {
+  //     return false
+  //   }
+  //   const secondNum = Number(second)
+  //   if (!Number.isInteger(secondNum)) {
+  //     return false
+  //   }
+  //   if (secondNum < 0) {
+  //     return false
+  //   }
+  //   return true
+  // }
+
+  // /**
+  //  * Lists an asset on the marketplace for sale
+  //  * @param assetId The ID of the asset to list
+  //  * @param amount The amount you want to sell
+  //  * @param desiredAssets Assets you would desire to have in return so people can make you an offer
+  //  * @param description Marketplace listing description
+  //  * @returns Overlay network submission results
+  //  */
+  // async listAssetForSale(
+  //   assetId: string,
+  //   amount: number,
+  //   desiredAssets: Record<string, number>,
+  //   description?: string
+  // ): Promise<SubmitResult> {
+  //   // Validate desired assets
+  //   for (const key of Object.keys(desiredAssets)) {
+  //     const validAssetId = this.validateAssetId(key)
+  //     if (!validAssetId) {
+  //       const e = new Error('Assset ID in desired assets structure invalid')
+  //       console.error('Rejecting output for having an invalid asset ID in desired assets')
+  //       throw e
+  //     }
+  //   }
+  //   for (const val of Object.values(desiredAssets)) {
+  //     if (typeof val !== 'number' || val < -1 || !Number.isInteger(val)) {
+  //       const e = new Error('Amount in desired assets structure invalid')
+  //       console.error('Rejecting output for having an invalid amount in desired assets')
+  //       throw e
+  //     }
+  //   }
+
+  //   // Creat a proof
+  //   const anyonePub = new PrivateKey(ANYONE, 'hex').toPublicKey().toString()
+  //   const proof = await this.proveOwnership(assetId, amount, anyonePub)
+  //   // Compose a PushDrop token
+  //   // const token = await pushdrop.create({
+  //   //   fields: [
+  //   //     Buffer.from(JSON.stringify(proof), 'utf8'),
+  //   //     Buffer.from(JSON.stringify(desiredAssets), 'utf8'),
+  //   //     Buffer.from(description || '', 'utf8')
+  //   //   ],
+  //   //   protocolID: [2, 'marketplace'],
+  //   //   keyID: '1',
+  //   //   counterparty: 'anyone',
+  //   //   ownedByCreator: true
+  //   // })
+
+  //   const identityKey = await getPublicKey({ identityKey: true })
+
+  //   // Here's the part where we create the new Bitcoin token.
+  //   // This uses a library called PushDrop, which lets you attach data
+  //   // payloads to Bitcoin token outputs. Then, you can redeem / unlock the
+  //   // tokens later.
+  //   const token = await pushdrop.create({
+  //     fields: [ // The "fields" are the data payload to attach to the token.
+  //       Buffer.from(JSON.stringify(proof), 'utf8'),
+  //       Buffer.from(identityKey, 'hex'),
+  //       Buffer.from(JSON.stringify(desiredAssets), 'utf8'),
+  //       Buffer.from(description || '', 'utf8')
+  //     ],
+  //     // The same "postboard" protocol and key ID can be used to sign and
+  //     // lock this new Bitcoin PushDrop token.
+  //     protocolID: 'marketplace',
+  //     keyID: '1',
+  //     counterparty: 'anyone',
+  //     ownedByCreator: true
+  //   })
+
+  //   debugger
+
+  //   // Create a transaction
+  //   const action = await createAction({
+  //     description: 'List assets on the marketplace',
+  //     outputs: [{
+  //       satoshis: this.satoshis,
+  //       script: token
+  //     }]
+  //   })
+
+  //   const parsedTransaction = new bsv.Transaction(action.rawTx)
+  //   const output = parsedTransaction.outputs[0]
+
+  //   const parsedToken = pushdrop.decode({
+  //     script: output.script.toHex(),
+  //     fieldFormat: 'buffer'
+  //   })
+  //   const parsedProof = JSON.parse(parsedToken.fields[0].toString('utf8'))
+
+  //   const expected = getPaymentAddress({
+  //     senderPrivateKey: '0000000000000000000000000000000000000000000000000000000000000001',
+  //     recipientPublicKey: parsedToken.fields[1].toString('hex'),
+  //     invoiceNumber: '2-marketplace-1',
+  //     returnType: 'publicKey'
+  //   })
+  //   // // Ensure result.lockingPublicKey came from prover
+  //   // const expected = getPaymentAddress({
+  //   //   senderPrivateKey: ANYONE,
+  //   //   recipientPublicKey: parsedProof.prover,
+  //   //   invoiceNumber: '2-marketplace-1',
+  //   //   returnType: 'publicKey'
+  //   // })
+  //   console.log('claimed key', parsedToken.fields[1].toString('hex'))
+  //   console.log('expected child', expected)
+  //   console.log('actual child', parsedToken.lockingPublicKey)
+  //   if (expected !== parsedToken.lockingPublicKey) {
+  //     const e = new Error('Unable to verify identity public key links to signing key')
+  //     console.error('Rejecting output for ownership proof mismatch')
+  //     throw e
+  //   }
+
+  //   // Send the transaction to the oerlay
+  //   return await this.submitToMarketplaceOverlay(action)
+  // }
+
+  // /**
+  //  * Returns an array of all marketplace entries
+  //  * @returns An array of all marketplace entries
+  //  */
+  // async findAllAssetsForSale(findMine = false): Promise<MarketplaceEntry[]> {
+  //   const findParams: { seller?: string, findAll?: boolean } = {}
+  //   if (findMine) {
+  //     const myIdentity = await getPublicKey({ identityKey: true })
+  //     findParams.seller = myIdentity
+  //   } else {
+  //     findParams.findAll = true
+  //   }
+  //   const assets = await this.findFromMarketplaceOverlay(findParams)
+  //   const results: MarketplaceEntry[] = []
+  //   for (const asset of assets) {
+  //     const decoded = pushdrop.decode({
+  //       script: asset.outputScript,
+  //       returnType: 'buffer'
+  //     })
+  //     const parsedProof: OwnershipProof = JSON.parse(decoded.fields[0].toString('utf8'))
+  //     const parsedDesiredAssets = JSON.parse(decoded.fields[1].toString('utf8'))
+  //     const decodedAsset = pushdrop.redeem({
+  //       script: parsedProof.tokens[0].output.outputScript,
+  //       returnType: 'utf8'
+  //     })
+  //     results.push({
+  //       seller: parsedProof.prover,
+  //       amount: parsedProof.amount,
+  //       description: decoded.fields[2] ? decoded.fields[2].toString('utf8') : '',
+  //       desiredAssets: parsedDesiredAssets,
+  //       ownershipProof: parsedProof,
+  //       assetId: parsedProof.assetId,
+  //       metadata: decodedAsset.fields[2].toString('utf8')
+  //     })
+  //   }
+  //   return results
+  // }
+
+  // async makeOffer(entry: MarketplaceEntry, assetId: string, amount: number): Promise<void> {
+  //   // Verify the assets are still available
+  //   const verified = await this.verifyOwnership(entry.ownershipProof, true)
+  //   if (!verified) {
+  //     throw new Error('Item is no longer for sale.')
+  //   }
+
+  //   // Compose a proof of our assets for the seller
+  //   const buyerProof = await this.proveOwnership(assetId, amount, entry.seller)
+
+  //   // prepare a funding UTXO for the trade offer
+  //   const fundingKeyID = this.getRandomKeyID()
+  //   const fundingTemplate = new BTMSFundingToken()
+  //   const fundingScript = await fundingTemplate.lock(this.protocolID, fundingKeyID, entry.seller)
+  //   const buyerOfferCustomInstructions: BuyerOfferCustomInstructions = {
+  //     buyerProof,
+  //     buyerOfferedAssetId: assetId,
+  //     buyerOfferedAmount: amount,
+  //     sellerEntry: entry,
+  //     fundingKeyID
+  //   }
+  //   const fundingAction = await createAction({
+  //     outputs: [{
+  //       satoshis: 1000,
+  //       script: fundingScript.toHex(),
+  //       description: 'Fund a trade offer',
+  //       basket: `${this.basket} trades`,
+  //       customInstructions: JSON.stringify(buyerOfferCustomInstructions)
+  //     }],
+  //     description: 'Offer a trade'
+  //   })
+
+  //   // Extract buyer's asset metadata to forward in the new UTXO
+  //   const decodedBuyerAsset = pushdrop.redeem({
+  //     script: buyerProof.tokens[0].output.outputScript,
+  //     returnType: 'utf8'
+  //   })
+  //   const metadata = decodedBuyerAsset.fields[2].toString('utf8')
+
+  //   // Create scripts for both the buyer's and seller's new ownership
+  //   const desiredBuyerKeyID = this.getRandomKeyID()
+  //   const template = new BTMSToken()
+  //   const desiredBuyerScript = (await template.lock(this.protocolID, desiredBuyerKeyID, entry.seller, assetId, entry.amount, metadata, true)).toHex()
+  //   const desiredSellerKeyID = this.getRandomKeyID()
+  //   const desiredSellerScript = (await template.lock(this.protocolID, desiredSellerKeyID, entry.seller, assetId, amount, metadata)).toHex()
+
+  //   // Create a conditionally signed transaction paying the seller's assets to us
+  //   const tx = new Transaction()
+
+  //   // Add outputs
+  //   tx.addOutput({
+  //     lockingScript: LockingScript.fromHex(desiredBuyerScript),
+  //     satoshis: this.satoshis
+  //   })
+  //   tx.addOutput({
+  //     lockingScript: LockingScript.fromHex(desiredSellerScript),
+  //     satoshis: this.satoshis
+  //   })
+  //   // TODO: Buyer and seller may both want change. Currently this is not implemented
+
+  //   // Go through all seller inputs and add them to the list
+  //   for (let i = 0; i < entry.ownershipProof.tokens.length; i++) {
+  //     tx.addInput({
+  //       sourceTransaction: Transaction.fromHex(entry.ownershipProof.tokens[i].output.envelope?.rawTx as string),
+  //       sourceOutputIndex: entry.ownershipProof.tokens[i].output.vout,
+  //       sequence: 0xffffffff
+  //     })
+  //   }
+
+  //   // Add the funding input
+  //   tx.addInput({
+  //     sourceTransaction: Transaction.fromHex(fundingAction.rawTx as string),
+  //     sourceOutputIndex: 0,
+  //     sequence: 0xffffffff,
+  //     unlockingScriptTemplate: fundingTemplate.unlock(this.protocolID, fundingKeyID, entry.seller)
+  //   })
+
+  //   // Go through all buyer inputs and sign them conditionally
+  //   for (let i = 0; i < buyerProof.tokens.length; i++) {
+  //     const token = buyerProof.tokens[i]
+  //     const parsedInstructions = JSON.parse(token.output.customInstructions as string)
+  //     const keyID = this.getKeyIDFromInstructions(parsedInstructions)
+  //     const counterparty = this.getCounterpartyFromInstructions(parsedInstructions)
+  //     tx.addInput({
+  //       sourceTransaction: Transaction.fromHex(token.output.envelope?.rawTx as string),
+  //       sourceOutputIndex: token.output.vout,
+  //       sequence: 0xffffffff,
+  //       unlockingScriptTemplate: template.unlock(this.protocolID, keyID, counterparty)
+  //     })
+  //   }
+
+  //   // sign the transacton
+  //   await tx.sign()
+
+  //   // Send the proof to the seller as an offer
+  //   const partialTX = tx.toHex()
+
+  //   const offer: MarketplaceOffer = {
+  //     buyerPartialTX: partialTX,
+  //     buyerProof,
+  //     buyerOffersAssetId: assetId,
+  //     buyerOffersAmount: amount,
+  //     sellerEntry: entry,
+  //     buyerFundingEnvelope: fundingAction,
+  //     fundingKeyID,
+  //     desiredSellerKeyID,
+  //     desiredSellerChangeKeyID: undefined,
+  //     desiredBuyerKeyID,
+  //     desiredBuyerChangeKeyID: undefined
+  //   }
+
+  //   await this.tokenator.sendMessage({
+  //     recipient: entry.seller,
+  //     messageBox: this.marketplaceMessageBox,
+  //     body: JSON.stringify(offer)
+  //   })
+  // }
+
+  // // List outgoing offers
+  // // TODO: support forAsset using output tags
+  // async listOutgoingOffers(): Promise<MarketplaceOffer[]> {
+  //   const basketEntries = await getTransactionOutputs({
+  //     basket: `${this.basket} trades`,
+  //     spendable: true,
+  //     includeEnvelope: true,
+  //     includeCustomInstructions: true
+  //   })
+  //   const rejectionMessages = await this.tokenator.listMessages({
+  //     messageBox: `${this.marketplaceMessageBox}_rejection`
+  //   })
+  //   const results: MarketplaceOffer[] = []
+  //   for (let i = 0; i < basketEntries.length; i++) {
+  //     const parsedInstructions: BuyerOfferCustomInstructions = JSON.parse(basketEntries[i].customInstructions as string)
+  //     // Check if the offer is rejected
+  //     const rejected = rejectionMessages.some(x => x.sender === parsedInstructions.sellerEntry.seller && x.body === basketEntries[i].txid)
+  //     results.push({
+  //       buyerFundingEnvelope: verifyTruthy(basketEntries[i].envelope),
+  //       buyerOffersAssetId: parsedInstructions.buyerOfferedAssetId,
+  //       buyerOffersAmount: parsedInstructions.buyerOfferedAmount,
+  //       buyerProof: parsedInstructions.buyerProof,
+  //       buyerPartialTX: '', // The TX could not have been stored in custom instructions.
+  //       // HOwever, the buyer does not need the TX to cancel the offer.
+  //       // The buyer would just need to spend the funding UTXO.
+  //       sellerEntry: parsedInstructions.sellerEntry,
+  //       fundingKeyID: parsedInstructions.fundingKeyID,
+  //       rejected
+  //     })
+  //   }
+  //   return results
+  // }
+
+  // // cancel outgoing offer
+  // async cancelOutgoingOffer(offer: MarketplaceOffer): Promise<void> {
+  //   // Compute an unlocking script
+  //   const fundingTX = Transaction.fromHex(offer.buyerFundingEnvelope.rawTx as string)
+  //   const fundingTXID = offer.buyerFundingEnvelope.txid || fundingTX.id('hex') as string
+  //   const signatureScope = TransactionSignature.SIGHASH_FORKID | TransactionSignature.SIGHASH_NONE | TransactionSignature.SIGHASH_ANYONECANPAY
+  //   const preimage = TransactionSignature.format({
+  //     sourceTXID: fundingTXID,
+  //     sourceOutputIndex: 0,
+  //     sourceSatoshis: fundingTX.outputs[0].satoshis as number,
+  //     transactionVersion: 1,
+  //     otherInputs: [],
+  //     inputIndex: 0,
+  //     outputs: [],
+  //     inputSequence: 0xffffffff,
+  //     subscript: fundingTX.outputs[0].lockingScript,
+  //     lockTime: 0,
+  //     scope: signatureScope
+  //   })
+  //   const preimageHash = Hash.sha256(preimage)
+  //   const SDKSignature = await createSignature({
+  //     data: Uint8Array.from(preimageHash),
+  //     protocolID: this.protocolID,
+  //     keyID: offer.fundingKeyID,
+  //     counterparty: offer.sellerEntry.seller
+  //   })
+  //   const rawSignature = Signature.fromDER([...SDKSignature])
+  //   const sig = new TransactionSignature(
+  //     rawSignature.r,
+  //     rawSignature.s,
+  //     signatureScope
+  //   )
+  //   const sigForScript = sig.toChecksigFormat()
+  //   const publicKeyString = await getPublicKey({
+  //     protocolID: this.protocolID,
+  //     keyID: offer.fundingKeyID,
+  //     counterparty: offer.sellerEntry.seller,
+  //     forSelf: true
+  //   })
+  //   const unlockingScript = new UnlockingScript([
+  //     { op: sigForScript.length, data: sigForScript },
+  //     { op: publicKeyString.length / 2, data: Utils.toArray(publicKeyString, 'hex') }
+  //   ]).toHex()
+
+  //   // Spend the offer's funding input in a transaction
+  //   await createAction({
+  //     description: 'cancel an offer',
+  //     inputs: {
+  //       [fundingTXID]: {
+  //         ...verifyTruthy(offer.buyerFundingEnvelope),
+  //         rawTx: offer.buyerFundingEnvelope.rawTx as string,
+  //         outputsToRedeem: [{
+  //           index: 0,
+  //           unlockingScript
+  //         }]
+  //       }
+  //     }
+  //   })
+  // }
+
+  // async listIncomingOffers(forEntry?: MarketplaceEntry): Promise<MarketplaceOffer[]> {
+  //   const offerMessages = await this.tokenator.listMessages({
+  //     messageBox: this.marketplaceMessageBox
+  //   })
+  //   const results: MarketplaceOffer[] = []
+  //   let forEntryString: string | undefined
+  //   if (typeof forEntry !== 'undefined') {
+  //     forEntryString = stringify(forEntry)
+  //   }
+  //   const myEntries = await this.findAllAssetsForSale(true)
+  //   const myEntriesStrings: string[] = myEntries.map(x => stringify(x))
+  //   for (let i = 0; i < offerMessages.length; i++) {
+  //     try {
+  //       const parsedOffer: MarketplaceOffer = JSON.parse(offerMessages[i].body)
+  //       const sellerEntryString = stringify(parsedOffer.sellerEntry)
+  //       if (!myEntriesStrings.some(x => x === sellerEntryString)) {
+  //         continue
+  //       }
+  //       if (forEntryString && sellerEntryString !== forEntryString) {
+  //         continue
+  //       }
+  //       const verified = await this.verifyOwnership(parsedOffer.buyerProof)
+  //       if (!verified) {
+  //         continue
+  //       }
+  //       if (parsedOffer.buyerProof.assetId !== parsedOffer.buyerOffersAssetId || parsedOffer.buyerProof.amount !== parsedOffer.buyerOffersAmount) {
+  //         continue
+  //       }
+  //       // TODO: Ensure inputs and outputs are correct from both proofs, including asset IDs and amounts
+  //       const isAsDesiredBySeller = parsedOffer.buyerOffersAmount >= parsedOffer.sellerEntry.desiredAssets[parsedOffer.buyerOffersAssetId]
+  //       parsedOffer.isAsDesiredBySeller = isAsDesiredBySeller
+  //       results.push(parsedOffer)
+  //     } catch (e) {
+  //       continue
+  //     }
+  //   }
+  //   return results
+  // }
+
+  // // accept incoming offer
+  // async acceptOffer(offer: MarketplaceOffer): Promise<void> {
+  //   const verified = await this.verifyOwnership(offer.buyerProof)
+  //   if (!verified) {
+  //     throw new Error('The offer has been recinded by the buyer.')
+  //   }
+  //   const tx = Transaction.fromHex(offer.buyerPartialTX)
+  //   const template = new BTMSToken()
+  //   for (let i = 0; i < offer.sellerEntry.ownershipProof.tokens.length; i++) {
+  //     const token = offer.sellerEntry.ownershipProof.tokens[i]
+  //     // Ensure input exists
+  //     const inputIndex = tx.inputs.findIndex(x => x.sourceTXID === token.output.txid && x.sourceOutputIndex === token.output.vout)
+  //     if (inputIndex === -1) {
+  //       throw new Error('Buyer did not include a required seller output')
+  //     }
+  //     tx.inputs[inputIndex].unlockingScriptTemplate = template.unlock(
+  //       this.protocolID,
+  //       this.getKeyIDFromInstructions(token.output.customInstructions),
+  //       this.getCounterpartyFromInstructions(token.output.customInstructions)
+  //     )
+  //   }
+  //   await tx.sign()
+  //   const finalTX = tx.toHex()
+  //   // Assemble inputs and SPV envelope
+  //   const inputs: Record<string, EnvelopeApi> = {}
+  //   const fundingTXID =
+  //     (typeof offer.buyerFundingEnvelope.txid === 'string' && offer.buyerFundingEnvelope.txid !== '')
+  //       ? offer.buyerFundingEnvelope.txid
+  //       : Transaction.fromHex(offer.buyerFundingEnvelope.rawTx as string).id('hex')
+  //   inputs[fundingTXID] = {
+  //     ...offer.buyerFundingEnvelope,
+  //     rawTx: offer.buyerFundingEnvelope.rawTx as string
+  //   }
+  //   for (let i = 0; i < offer.sellerEntry.ownershipProof.tokens.length; i++) {
+  //     const token = offer.sellerEntry.ownershipProof.tokens[i]
+  //     if (typeof inputs[token.output.txid] === 'undefined') {
+  //       inputs[token.output.txid] = token.output.envelope as EnvelopeApi
+  //     }
+  //   }
+  //   for (let i = 0; i < offer.buyerProof.tokens.length; i++) {
+  //     const token = offer.buyerProof.tokens[i]
+  //     if (typeof inputs[token.output.txid] === 'undefined') {
+  //       inputs[token.output.txid] = token.output.envelope as EnvelopeApi
+  //     }
+  //   }
+  //   const action: CreateActionResult = {
+  //     inputs,
+  //     rawTx: finalTX,
+  //     mapiResponses: [],
+  //     txid: tx.id('hex')
+  //   }
+  //   // Submit action to overlay
+  //   await this.submitToTokenOverlay(action)
+  //   // Submit action to seller (self) with submitDirectTransaction
+  //   await submitDirectTransaction({ // TODO: signing strategy
+  //     senderIdentityKey: offer.buyerProof.prover,
+  //     note: `Receive ${offer.buyerOffersAmount} ${offer.buyerProof.assetId} from trade with ${offer.buyerProof.prover} in exchange for sending them my ${offer.sellerEntry.amount} ${offer.sellerEntry.assetId}`,
+  //     amount: this.satoshis,
+  //     labels: [offer.buyerProof.assetId.replace('.', ' ')],
+  //     transaction: {
+  //       ...action,
+  //       rawTx: action.rawTx as string,
+  //       outputs: [{
+  //         vout: 1, // TODO: Verify this!
+  //         basket: this.basket,
+  //         satoshis: this.satoshis,
+  //         tags: ['owner self'],
+  //         customInstructions: JSON.stringify({
+  //           sender: offer.buyerProof.prover,
+  //           keyID: offer.desiredSellerKeyID !== 'undefined' && offer.desiredSellerKeyID !== '' ? offer.desiredSellerKeyID : '1'
+  //         })
+  //       }]
+  //     }
+  //   })
+  //   // Submit action to buyer with tokenator
+  //   await this.tokenator.sendMessage({
+  //     messageBox: `${this.marketplaceMessageBox}_acceptance`,
+  //     recipient: offer.buyerProof.prover,
+  //     body: JSON.stringify({ offer, action })
+  //   })
+  // }
+
+  // async acknowledgeNewlyAcquiredMarketplaceAssets(): Promise<void> {
+  //   // List newly acquired assets sent from sellers
+  //   const newAssets = await this.tokenator.listMessages({
+  //     messageBox: `${this.marketplaceMessageBox}_acceptance`
+  //   })
+  //   for (let i = 0; i < newAssets.length; i++) {
+  //     try {
+  //       const parsedAsset: { action: CreateActionResult, offer: MarketplaceOffer } = JSON.parse(newAssets[i].body)
+  //       // Auto-process them with submitDirectTransaction
+  //       await submitDirectTransaction({ // TODO: signing strategy
+  //         senderIdentityKey: newAssets[i].sender,
+  //         note: `Receive ${parsedAsset.offer.sellerEntry.amount} ${parsedAsset.offer.sellerEntry.assetId} from trade with ${parsedAsset.offer.sellerEntry.seller} in exchange for sending them my ${parsedAsset.offer.buyerOffersAmount} ${parsedAsset.offer.buyerOffersAssetId}`,
+  //         amount: this.satoshis,
+  //         labels: [parsedAsset.offer.sellerEntry.assetId.replace('.', ' ')],
+  //         transaction: {
+  //           ...parsedAsset.action,
+  //           rawTx: parsedAsset.action.rawTx as string,
+  //           outputs: [{
+  //             vout: 0, // TODO: Verify this!
+  //             basket: this.basket,
+  //             satoshis: this.satoshis,
+  //             tags: ['owner self'],
+  //             customInstructions: JSON.stringify({
+  //               sender: parsedAsset.offer.sellerEntry.seller,
+  //               keyID: parsedAsset.offer.desiredBuyerKeyID || '1'
+  //             })
+  //           }]
+  //         }
+  //       })
+  //     } catch (e) {
+  //       continue
+  //     } finally {
+  //       // acknowledge
+  //       await this.tokenator.acknowledgeMessages({
+  //         messageIds: [newAssets[i].messageId]
+  //       })
+  //     }
+  //   }
+  // }
+
+  // // reject incoming offer
+  // async rejectOffer(offer: MarketplaceOffer): Promise<void> {
+  //   await this.tokenator.acknowledgeMessages({
+  //     messageIds: [offer.messageId as string]
+  //   })
+  //   const fundingTXID = offer.buyerFundingEnvelope.txid as string ? (offer.buyerFundingEnvelope.txid || Transaction.fromHex(offer.buyerFundingEnvelope.rawTx as string).id('hex') as string) : ''
+  //   await this.tokenator.sendMessage({
+  //     messageBox: `${this.marketplaceMessageBox}_reject`,
+  //     recipient: offer.buyerProof.prover,
+  //     body: fundingTXID
+  //   })
+  // }
+
+  // // reject incoming offer
+  // async acknowledgeRejection(offer: MarketplaceOffer): Promise<void> {
+  //   if (offer.rejected !== true) {
+  //     throw new Error('This offer was never rejected.')
+  //   }
+  //   await this.tokenator.acknowledgeMessages({
+  //     messageIds: [offer.messageId as string]
+  //   })
+  //   await this.cancelOutgoingOffer(offer)
+  // }
+
+  // private async verifyLinkageForProver(linkage: SpecificKeyLinkageResult, expectedKey: string, useAnyoneKey = false): Promise<boolean> {
+  //   // Decrypt the linkage
+  //   let decryptedLinkage: Uint8Array
+  //   if (this.privateKey || useAnyoneKey) {
+  //     // derive the decryption key
+  //     const derivedKey = getPaymentPrivateKey({
+  //       recipientPrivateKey: useAnyoneKey ? ANYONE : this.privateKey,
+  //       senderPublicKey: linkage.prover,
+  //       invoiceNumber: `${linkage.protocolID[0]}-${linkage.protocolID[1]}-${(linkage as unknown as { keyID: string }).keyID}`,
+  //       returnType: 'hex'
+  //     })
+  //     const derivedCryptoKey = await crypto.subtle.importKey(
+  //       'raw',
+  //       Uint8Array.from(Buffer.from(derivedKey, 'hex')),
+  //       { name: 'AES-GCM' },
+  //       false,
+  //       ['decrypt']
+  //     )
+  //     // decrypt the value
+  //     decryptedLinkage = CWIDecrypt(linkage.encryptedLinkage, derivedCryptoKey, 'string')
+  //     console.log('Decrypted linkage', decryptedLinkage)
+  //   } else {
+  //     decryptedLinkage = await SDKDecrypt({
+  //       ciphertext: linkage.encryptedLinkage,
+  //       counterparty: linkage.prover,
+  //       protocolID: [2, `specific linkage revelation ${linkage.protocolID[0]} ${linkage.protocolID[1]}`],
+  //       keyID: (linkage as unknown as { keyID: string }).keyID, // !!! ERRPR im base type, it DOES have keyID
+  //       returnType: 'Uint8Array'
+  //     }) as Uint8Array
+  //   }
+  //   // Add it to the prover's identity key with point addition
+  //   const curve = new Curve()
+  //   const linkagePoint = curve.g.mul(
+  //     new BigNumber([...new Uint8Array(decryptedLinkage as Uint8Array)])
+  //   )
+  //   const identityKey = PublicKey.fromString(linkage.prover)
+  //   const actualDerivedPoint = identityKey.add(linkagePoint)
+  //   const actualDerivedKey = new PublicKey(actualDerivedPoint).toString()
+  //   // Check the result against the expected key
+  //   if (expectedKey === actualDerivedKey) {
+  //     return true
+  //   }
+  //   return false
+  // }
+
+  // private async findFromTokenOverlay(token: { txid: string, vout: number }): Promise<OverlaySearchResult[]> {
+  //   const result = await this.authrite.request(`${this.confederacyHost}/lookup`, {
+  //     method: 'post',
+  //     headers: {
+  //       'Content-Type': 'application/json'
+  //     },
+  //     body: JSON.stringify({
+  //       provider: 'tokens',
+  //       query: {
+  //         txid: token.txid,
+  //         vout: token.vout
+  //       }
+  //     })
+  //   })
+
+  //   const json = await result.json()
+  //   return json
+  // }
+
+  // private async findFromMarketplaceOverlay(token: {
+  //   txid?: string,
+  //   vout?: number,
+  //   findAll?: boolean,
+  //   assetId?: string,
+  //   seller?: string
+  // }): Promise<OverlaySearchResult[]> {
+  //   const result = await this.authrite.request(`${this.confederacyHost}/lookup`, {
+  //     method: 'post',
+  //     headers: {
+  //       'Content-Type': 'application/json'
+  //     },
+  //     body: JSON.stringify({
+  //       provider: 'marketplace',
+  //       query: token
+  //     })
+  //   })
+
+  //   const json = await result.json()
+  //   return json
+  // }
+
+  // private async submitToTokenOverlay(tx, topics = [this.tokenTopic]): Promise<SubmitResult> {
+  //   const result = await this.authrite.request(`${this.confederacyHost}/submit`, {
+  //     method: 'post',
+  //     headers: {
+  //       'Content-Type': 'application/json'
+  //     },
+  //     body: JSON.stringify({
+  //       ...tx,
+  //       topics
+  //     })
+  //   })
+  //   const json = await result.json()
+  //   console.log('submit to overlay', json)
+  //   return json
+  // }
+
+  // private async submitToMarketplaceOverlay(tx, topics = [this.marketplaceTopic]): Promise<SubmitResult> {
+  //   const result = await this.authrite.request(`${this.confederacyHost}/submit`, {
+  //     method: 'post',
+  //     headers: {
+  //       'Content-Type': 'application/json'
+  //     },
+  //     body: JSON.stringify({
+  //       ...tx,
+  //       topics
+  //     })
+  //   })
+  //   const json = await result.json()
+  //   console.log('submit to overlay', json)
+  //   return json
+  // }
+
+  // private getCounterpartyFromInstructions(i): string {
+  //   if (!i) {
+  //     return 'self'
+  //   }
+  //   while (typeof i === 'string') {
+  //     i = JSON.parse(i)
+  //   }
+  //   return i.sender
+  // }
+
+  // private getKeyIDFromInstructions(i): string {
+  //   if (!i) {
+  //     return '1'
+  //   }
+  //   while (typeof i === 'string') {
+  //     i = JSON.parse(i)
+  //   }
+  //   return i.keyID || '1'
+  // }
+
+  async forceAcknowledgeAll() {
+    const callId = makeDebugCallId('forceAcknowledgeAll')
+    btmsDebug(`${callId}: START`)
+
+    const custodyBox = this.tokensMessageBox
+
+    const msgs = await this.tokenator.listMessages({ messageBox: custodyBox })
+
+    if (!msgs.length) {
+      btmsDebug(`${callId}: no messages to acknowledge`)
+      return
+    }
+
+    const ids = msgs.map(m => m.messageId)
+
+    btmsDebug(`${callId}: acknowledging`, { count: ids.length, ids })
+
+    await this.tokenator.acknowledgeMessages({ messageIds: ids })
+
+    btmsDebug(`${callId}: COMPLETE`)
   }
 }
 
-/* ------------------------------------------------------------------ */
-/* default export */
-/* ------------------------------------------------------------------ */
-const btmsInstance = new BTMS();
-const defaultExport: any = btmsInstance;
-
-defaultExport.listAssets = btmsInstance.listAssets.bind(btmsInstance);
-defaultExport.issue = btmsInstance.issue.bind(btmsInstance);
-defaultExport.listIncomingPayments =
-  btmsInstance.listIncomingPayments.bind(btmsInstance);
-defaultExport.getPublicKey = btmsInstance.getPublicKey.bind(btmsInstance);
-defaultExport.acceptIncomingPayment =
-  btmsInstance.acceptIncomingPayment.bind(btmsInstance);
-defaultExport.refundIncomingTransaction =
-  btmsInstance.refundIncomingTransaction.bind(btmsInstance);
-defaultExport.send = btmsInstance.send.bind(btmsInstance);
-
-// keep the static hook
-(BTMS as any).listIncomingPayments =
-  btmsInstance.listIncomingPayments.bind(btmsInstance);
-
-btmsDebug("exported singleton btmsInstance", {
-  instanceId: (btmsInstance as any).instanceId,
-  source: BTMS_SOURCE_TAG,
-});
-
-// -------------------------------------------------------------------
-// helper: acceptBTMSPayment (receiver side)
-// -------------------------------------------------------------------
+export { walletClient }
 /**
- * Accept an incoming BTMS payment that was sent via MessageBox.
- * `beefPayload` is the wallet action you sent from sendBTMSToken.
- */
-export async function acceptBTMSPayment(beefPayload: any): Promise<void> {
-  const callId = makeDebugCallId("acceptBTMSPayment");
-  btmsDebug(`${callId}: start`, { hasPayload: !!beefPayload });
-
-  const anyPayload = beefPayload as any;
-  const rawBeef =
-    anyPayload?.tx ??
-    anyPayload?.atomicBeef ??
-    anyPayload?.beef ??
-    anyPayload?.context;
-
-  if (!rawBeef) {
-    throw new Error("acceptBTMSPayment: no atomicBeef / tx found in payload");
-  }
-
-  const beefArray: number[] = Array.isArray(rawBeef)
-    ? rawBeef.map((x: any) => Number(x))
-    : (() => {
-        throw new Error("acceptBTMSPayment: expected BEEF as number[]");
-      })();
-
-  const tx = Transaction.fromAtomicBEEF(beefArray);
-  const txid = tx.id("hex");
-
-  btmsDebug(`${callId}: rehydrated Transaction from BEEF`, {
-    txid,
-    outputs: tx.outputs.length,
-  });
-
-  const netRes = (await (walletClient as any).getNetwork?.()) || {
-    network: "mainnet",
-  };
-  const networkName: string = netRes.network || "mainnet";
-  const networkPreset = networkName === "testnet" ? "testnet" : "mainnet";
-
-  const broadcaster = new SHIPBroadcaster(["tokens"], {
-    networkPreset,
-  });
-
-  // ✅ correct usage: broadcaster broadcasts the transaction
-  await broadcaster.broadcast(tx);
-
-  btmsDebug(`${callId}: broadcast complete`, {
-    txid,
-    networkPreset,
-  });
-}
-
-// -------------------------------------------------------------------
-// helper: sendBTMSToken (sender side)
-// -------------------------------------------------------------------
-/**
- * Thin helper that centralises BTMS send behaviour.
+ * Normalize wallet-provided labels.
  *
- * - Normalises amount to a number
- * - Validates assetId / recipient
- * - Adds a per-call ID so logs can be correlated
- * - Delegates to btmsInstance.send(...) which will:
- *   * auto-select an outpoint for this assetId (from wallet.listOutputs)
- *   * hydrate AtomicBEEF (LookupResolver + HTTP, if needed)
- *   * send a MessageBox message containing { token, beef, beefPayload }
+ * Wallet always lowercases labels internally, but developers often forget
+ * and compare against mixed-case patterns (e.g. "btmsToken v1 assetId=foo_v1").
+ * This function guarantees consistent matching.
+ *
+ * @param label original label from WalletOutput.labels
+ * @returns lowercased, trimmed, normalized string
  */
-export async function sendBTMSToken(rawArgs: any): Promise<void> {
-  const callId = makeDebugCallId("sendBTMSToken");
-  btmsDebug(`${callId}: start`, { rawArgs });
-
-  try {
-    const args = rawArgs && typeof rawArgs === "object" ? { ...rawArgs } : {};
-    const { assetId, recipient } = args;
-
-    const amt =
-      typeof args.amount === "string" ? Number(args.amount) : args.amount;
-
-    if (!assetId || typeof assetId !== "string") {
-      throw new Error("sendBTMSToken: assetId is required");
-    }
-    if (!recipient || typeof recipient !== "string") {
-      throw new Error("sendBTMSToken: recipient identity key is required");
-    }
-    if (!Number.isFinite(amt) || amt <= 0) {
-      throw new Error("sendBTMSToken: amount must be a positive number");
-    }
-
-    const payload = {
-      ...args,
-      assetId,
-      recipient,
-      amount: amt,
-    };
-
-    btmsDebug(`${callId}: calling btmsInstance.send(...)`, {
-      assetId,
-      recipient,
-      amount: amt,
-      hasBeefPayload: !!payload.beefPayload,
-      hasTokenBeef: !!payload.token?.beef || !!payload.token?.beefPayload,
-    });
-
-    await btmsInstance.send(payload);
-
-    btmsDebug(`${callId}: btmsInstance.send(...) completed`, {
-      assetId,
-      recipient,
-      amount: amt,
-    });
-  } catch (err: any) {
-    btmsDebug(`${callId}: ERROR`, {
-      message: err?.message,
-      stackTop: String(err?.stack || "").split("\n")[0],
-    });
-    throw err;
-  }
+export function getNormalisedLabel(label: string): string {
+  if (typeof label !== 'string') return ''
+  return label.trim().toLowerCase()
 }
 
-export { setBTMSAuthFetch, OverlayClient, btmsInstance as btms };
-export default defaultExport;
+// ---------------------------------------------------------------------------
+// BTMS HMR-RESILIENT SINGLETON
+// ---------------------------------------------------------------------------
+
+declare const window: any
+
+type BTMSGlobalScope = {
+  __BTMS_SINGLETON__?: BTMS
+  __BTMS_SOURCE_TAG__?: string
+}
+
+const globalScope = window as unknown as BTMSGlobalScope
+
+// If there is no singleton yet, or the source tag changed (new build),
+// create a fresh instance. Otherwise, reuse the existing one.
+if (!globalScope.__BTMS_SINGLETON__ || globalScope.__BTMS_SOURCE_TAG__ !== BTMS_SOURCE_TAG) {
+  console.info('[BTMS HMR] Creating fresh BTMS singleton', {
+    prevTag: globalScope.__BTMS_SOURCE_TAG__,
+    newTag: BTMS_SOURCE_TAG
+  })
+
+  globalScope.__BTMS_SINGLETON__ = new BTMS(walletClient)
+  globalScope.__BTMS_SOURCE_TAG__ = BTMS_SOURCE_TAG
+} else {
+  console.info('[BTMS HMR] Reusing existing BTMS singleton', {
+    tag: globalScope.__BTMS_SOURCE_TAG__
+  })
+}
+
+// Export singleton
+export const btms = globalScope.__BTMS_SINGLETON__ as BTMS
+btms.initAfterConstructor()
+;(globalThis as any).btms = btms // <-- enable DevTools debugging

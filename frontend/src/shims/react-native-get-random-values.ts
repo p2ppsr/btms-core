@@ -1,2 +1,2 @@
 // Web shim — do nothing
-export {};
+export {}

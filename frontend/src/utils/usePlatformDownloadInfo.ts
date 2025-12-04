@@ -6,13 +6,11 @@
  * GitHub release info.
  */
 
-import { useEffect, useState } from "react";
-import getLatestMetanetclientLinks, {
-  MetanetclientLinks,
-} from "./getLatestMetanetclientLinks";
-import { logWithTimestamp } from "./logging";
+import { useEffect, useState } from 'react'
+import getLatestMetanetclientLinks, { MetanetclientLinks } from './getLatestMetanetclientLinks'
+import { logWithTimestamp } from './logging'
 
-const F = "utils/usePlatformDownloadInfo";
+const F = 'utils/usePlatformDownloadInfo'
 
 /**
  * Represents platform-specific download information for the Metanet client.
@@ -22,8 +20,8 @@ const F = "utils/usePlatformDownloadInfo";
  * @property {string} downloadURL - A direct URL to download the Metanet client for the detected platform, or empty string if unavailable.
  */
 export interface DownloadInfo {
-  platformLabel: string;
-  downloadURL: string;
+  platformLabel: string
+  downloadURL: string
 }
 
 /**
@@ -36,7 +34,7 @@ export interface DownloadInfo {
  *          or `null` while loading or if an error occurs.
  */
 const usePlatformDownloadInfo = (): DownloadInfo | null => {
-  const [info, setInfo] = useState<DownloadInfo | null>(null);
+  const [info, setInfo] = useState<DownloadInfo | null>(null)
 
   useEffect(() => {
     /**
@@ -45,58 +43,57 @@ const usePlatformDownloadInfo = (): DownloadInfo | null => {
      * @returns {keyof MetanetclientLinks} The inferred desktop OS key, defaults to 'macos' if unknown.
      */
     const detectWebPlatform = (): keyof MetanetclientLinks => {
-      if (typeof navigator === "undefined") {
-        return "macos";
+      if (typeof navigator === 'undefined') {
+        return 'macos'
       }
 
-      const ua = navigator.userAgent || navigator.platform || "unknown";
-      if (typeof ua === "string" && ua !== "") {
-        if (/Mac/i.test(ua)) return "macos";
-        if (/Win/i.test(ua)) return "windows";
-        if (/Linux/i.test(ua)) return "linux";
+      const ua = navigator.userAgent || navigator.platform || 'unknown'
+      if (typeof ua === 'string' && ua !== '') {
+        if (/Mac/i.test(ua)) return 'macos'
+        if (/Win/i.test(ua)) return 'windows'
+        if (/Linux/i.test(ua)) return 'linux'
       }
-      return "macos"; // Fallback to macOS if platform cannot be determined
-    };
+      return 'macos' // Fallback to macOS if platform cannot be determined
+    }
 
     /**
      * Fetches the latest Metanet client links and sets the appropriate platform info.
      */
     const fetchDownloadURL = async (): Promise<void> => {
       try {
-        const links: MetanetclientLinks = await getLatestMetanetclientLinks();
-        logWithTimestamp(F, "🔍 Metanet client links:", links);
+        const links: MetanetclientLinks = await getLatestMetanetclientLinks()
+        logWithTimestamp(F, '🔍 Metanet client links:', links)
 
-        const desktopOS = detectWebPlatform();
+        const desktopOS = detectWebPlatform()
         const labelMap: Record<string, string> = {
-          macos: "macOS",
-          windows: "Windows",
-          linux: "Linux",
-        };
+          macos: 'macOS',
+          windows: 'Windows',
+          linux: 'Linux'
+        }
 
-        const platformLabel = labelMap[desktopOS] || "Desktop";
-        const downloadURL = links[desktopOS] ?? "";
+        const platformLabel = labelMap[desktopOS] || 'Desktop'
+        const downloadURL = links[desktopOS] ?? ''
 
         setInfo({
           platformLabel,
-          downloadURL,
-        });
+          downloadURL
+        })
 
-        logWithTimestamp(F, "✅ Set platform info:", {
+        logWithTimestamp(F, '✅ Set platform info:', {
           platformLabel,
-          downloadURL,
-        });
+          downloadURL
+        })
       } catch (error: unknown) {
-        const message =
-          error instanceof Error ? error.message : "Unknown error";
-        logWithTimestamp(F, "❌ Error fetching download URL:", message);
-        setInfo(null);
+        const message = error instanceof Error ? error.message : 'Unknown error'
+        logWithTimestamp(F, '❌ Error fetching download URL:', message)
+        setInfo(null)
       }
-    };
+    }
 
-    void fetchDownloadURL();
-  }, []);
+    void fetchDownloadURL()
+  }, [])
 
-  return info;
-};
+  return info
+}
 
-export default usePlatformDownloadInfo;
+export default usePlatformDownloadInfo

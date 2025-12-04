@@ -19,7 +19,7 @@
     "start": "npm run lars",
     "lars": "npx @bsv/lars",
     "backend": "cd backend && npm run start",
-    "frontend": "cd frontend && npm run start",
+    "frontend": "cd frontend && npm run dev",
     "test": "jest",
     "test:watch": "jest --watch",
     "doc": "ts2md",
@@ -56,7 +56,9 @@
     "ts-jest": "^29.0.5",
     "ts-node": "^10.9.1",
     "ts-standard": "^12.0.2",
-    "typescript": "^4.9.5"
+    "typescript": "^4.9.5",
+    "@types/express": "^4.17.21",
+    "@types/cors": "^2.8.17"
   },
   "dependencies": {
     "@bsv/message-box-client": "^1.4.5",
@@ -65,9 +67,10 @@
     "json-stable-stringify": "^1.3.0",
     "mongodb": "^7.0.0",
     "prettier": "^3.6.2",
-    "react-native-get-random-values": "^2.0.0",
     "react-qr-code": "^2.0.18",
-    "ts2md": "^0.2.4"
+    "ts2md": "^0.2.4",
+    "express": "^4.19.2",
+    "cors": "^2.8.5"
   },
   "peerDependencies": {
     "react": "18.3.1",

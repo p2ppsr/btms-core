@@ -3,20 +3,20 @@
 
 // frontend/src/utils/logging.config.ts
 export default {
-  level: "info",
-  console: true,
-};
+  level: 'info',
+  console: true
+}
 
 const loggingConfig = {
   // turn on console logging
   enabled: true,
 
   // common levels: 'debug' | 'info' | 'warn' | 'error'
-  level: "info",
+  level: 'info',
 
   // optional prefix to make BTMS logs easy to spot
-  prefix: "[BTMS]",
-};
+  prefix: '[BTMS]'
+}
 
 //export default loggingConfig;
 
