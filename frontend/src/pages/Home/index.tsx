@@ -188,12 +188,12 @@ const Home: React.FC<HomeProps> = ({ history }) => {
           <Grid item container direction="column" alignItems="center">
             <Grid item className={classes.title}>
               <Typography variant="h2" sx={{ fontWeight: 'bold' }}>
-                BTMS
+                Asset Vault
               </Typography>
             </Grid>
             <Grid item className={classes.sub_title}>
               <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
-                Basic Tokenization Management System
+                Secure Real-World Asset Management
               </Typography>
             </Grid>
           </Grid>
@@ -201,13 +201,13 @@ const Home: React.FC<HomeProps> = ({ history }) => {
           <Grid item container alignItems="flex-start" className={classes.table_title} direction="column">
             <Grid item>
               <Typography variant="h4" sx={{ fontWeight: 'bold' }}>
-                My Tokens
+                My Assets
               </Typography>
             </Grid>
             <Grid item alignSelf="flex-end">
               {mergedTokens.length >= 1 && (
                 <Button component={Link} to="/mint" variant="outlined" color="secondary">
-                  + New Token
+                  + Issue Asset
                 </Button>
               )}
             </Grid>
@@ -220,16 +220,16 @@ const Home: React.FC<HomeProps> = ({ history }) => {
               <TableHead>
                 <TableRow>
                   <TableCell align="left" sx={{ fontWeight: 'bold' }} colSpan={2}>
-                    Token
+                    Asset
                   </TableCell>
                   <TableCell align="right" sx={{ fontWeight: 'bold' }}>
                     Balance
                   </TableCell>
                   <TableCell align="right" sx={{ fontWeight: 'bold' }}>
-                    Send
+                    Transfer
                   </TableCell>
                   <TableCell align="right" sx={{ fontWeight: 'bold' }}>
-                    Receive
+                    Incoming
                   </TableCell>
                 </TableRow>
               </TableHead>
@@ -309,7 +309,7 @@ const Home: React.FC<HomeProps> = ({ history }) => {
                               disabled
                               sx={{ opacity: 0.4, cursor: 'not-allowed' }}
                             >
-                              Send
+                              Transfer
                             </Button>
                           )}
                         </TableCell>
@@ -336,7 +336,7 @@ const Home: React.FC<HomeProps> = ({ history }) => {
                               disabled
                               sx={{ opacity: 0.4, cursor: 'not-allowed' }}
                             >
-                              Receive
+                              —
                             </Button>
                           )}
                         </TableCell>
@@ -367,11 +367,11 @@ const Home: React.FC<HomeProps> = ({ history }) => {
                     <img src="/monkey.svg" style={{ width: '100%' }} />
                   </Grid>
                   <Grid item sx={{ textAlign: 'center' }}>
-                    <Typography>No tokens yet.</Typography>
+                    <Typography>No assets yet.</Typography>
                   </Grid>
                   <Grid item sx={{ textAlign: 'center', paddingTop: '0.5em' }}>
                     <Button component={Link} to="/mint" variant="outlined" color="secondary">
-                      + New Token
+                      + Issue Asset
                     </Button>
                   </Grid>
                 </Grid>

@@ -1,483 +1,160 @@
-// backend/src/lookup-services/BTMSLookupServiceFactory.ts
-
 import {
-  LookupService,
-  LookupQuestion,
   AdmissionMode,
-  SpendNotificationMode,
+  LookupService,
+  LookupFormula,
   OutputAdmittedByTopic,
   OutputSpent,
-  LookupServiceMetaData,
-  LookupFormula
+  SpendNotificationMode
 } from '@bsv/overlay'
+import { PushDrop, Utils, LookupQuestion } from '@bsv/sdk'
 import { Db } from 'mongodb'
-import { AtomicBEEF, BEEF, Byte, PositiveIntegerOrZero, Transaction, TXIDHexString } from '@bsv/sdk'
-import { BTMSStorage } from './BTMSStorage'
-import docs from './BTMSLookupDocs.md'
+import { BTMSStorage } from './BTMSStorage.js'
+import docs from './BTMSLookupDocs.md.js'
 
 /**
- * Any BEEF-ish thing we might see on the payload.
- */
-type BeefLike = BEEF | AtomicBEEF | Uint8Array
-
-interface WholeTxPayloadExtras {
-  outputIndex?: number | string | PositiveIntegerOrZero
-  atomicBEEF?: AtomicBEEF
-  atomicBeef?: BeefLike
-  beef?: BeefLike
-  context?: BeefLike
-}
-
-type LockingScriptBytes = Byte[]
-
-type LockingScriptLike =
-  | LockingScriptBytes
-  | Uint8Array
-  | Buffer
-  | {
-      toBytes?: () => Uint8Array
-      toBuffer?: () => Uint8Array | Buffer
-      toHex?: () => string
-    }
-  | null
-  | undefined
-
-type LooseQuery = {
-  txid?: unknown
-  vout?: unknown
-  formula?: unknown
-  assetId?: unknown
-  findAll?: unknown
-  query?: unknown
-  service?: unknown
-  identityKey?: unknown // <- new: for history-by-identity queries
-}
-
-type LookupEntry = LookupFormula[number]
-
-type ExtendedLookupEntry = LookupEntry & {
-  beef?: AtomicBEEF
-  lockingScript?: LockingScriptBytes
-}
-
-/**
- * BTMS lookup service (pushdrop-free).
- *
- *  - Admit outputs and store minimal info.
- *  - The overlay engine expects `lookup` to return a LookupFormula:
- *      Array<{ txid: TXIDHexString; outputIndex: PositiveIntegerOrZero; history?; context? }>
- *
- * For compatibility with BTMS.send → findFromTokenOverlay:
- *  - On an exact outpoint query ({ txid, vout }), we return a single
- *    LookupFormula element and also include `beef` and `lockingScript`
- *    fields as extra properties (permitted at runtime, TS-cast in code).
- *
- * We still do NOT:
- *  - decode pushdrop
- *  - infer assetId/amount/metadata from the script on the overlay
- *
- * NOTE (2025-11-20):
- *  - A future formula `"history"` is defined in `lookup()` as a stub for
- *    `GET /overlay/ls_btms/history?identityKey=<active>`.
- *    Implementation of that formula requires extending BTMSStorage to
- *    actually persist per-identity history rows (sends, incoming,
- *    internalization events, refunds).
+ * BTMS Lookup Service
+ * 
+ * Indexes BTMS PushDrop tokens by assetId for efficient lookups.
+ * Follows the same pattern as UMP Lookup Service.
  */
 class BTMSLookupService implements LookupService {
-  // We want the whole transaction admitted (AtomicBEEF / BEEF available via context).
-  readonly admissionMode: AdmissionMode = 'whole-tx'
+  readonly admissionMode: AdmissionMode = 'locking-script'
   readonly spendNotificationMode: SpendNotificationMode = 'none'
 
-  constructor(public storage: BTMSStorage) {
-    // 🔊 Log once when the service is constructed so we know this version loaded.
-    console.log(
-      '[BTMSLookupService] constructed',
-      JSON.stringify(
-        {
-          admissionMode: this.admissionMode,
-          spendNotificationMode: this.spendNotificationMode
-        },
-        null,
-        2
-      )
-    )
+  private storage: BTMSStorage
+
+  constructor(db: Db) {
+    this.storage = new BTMSStorage(db)
   }
 
   async getDocumentation(): Promise<string> {
     return docs
   }
 
-  async getMetaData(): Promise<LookupServiceMetaData> {
+  async getMetaData(): Promise<{
+    name: string
+    shortDescription: string
+    iconURL?: string
+    version?: string
+    informationURL?: string
+  }> {
     return {
       name: 'BTMS Lookup Service',
-      shortDescription:
-        "Indexes BTMS UTXOs; supports findAll / by-asset / by-outpoint (no PushDrop). A stub 'history' formula is reserved for per-identity history."
+      shortDescription: 'Lookup Service for BTMS (Basic Token Management System) tokens'
     }
   }
 
   /**
-   * Admit handler — for whole-tx mode.
-   *
-   * OutputAdmittedByTopic (whole-tx) looks like:
-   *   { mode: 'whole-tx', atomicBEEF: number[], outputIndex: PositiveIntegerOrZero, topic: string, ... }
-   *
-   * We:
-   *  - parse atomicBEEF / BEEF → Transaction
-   *  - derive txid + lockingScript for the admitted outputIndex
-   *  - save { txid, outputIndex, beef:AtomicBEEF, lockingScript:Byte[] }
+   * Handle output admission from the topic manager.
+   * Decodes the BTMS PushDrop token and stores the assetId for lookup.
    */
   async outputAdmittedByTopic(payload: OutputAdmittedByTopic): Promise<void> {
-    if (payload.mode !== 'whole-tx') {
-      console.log(
-        '[BTMSLookupService] outputAdmittedByTopic: skipping payload with non-whole-tx mode',
-        JSON.stringify(
-          {
-            mode: payload.mode
-          },
-          null,
-          2
-        )
-      )
-      return
+    if (payload.mode !== 'locking-script') {
+      throw new Error('Invalid payload mode')
     }
 
-    const wholePayload = payload as OutputAdmittedByTopic & WholeTxPayloadExtras
+    const { txid, outputIndex, topic, lockingScript } = payload
 
-    const outputIndex = Number(wholePayload.outputIndex ?? 0) as PositiveIntegerOrZero
-
-    const atomicBEEFSource: BeefLike | undefined =
-      wholePayload.atomicBEEF ?? wholePayload.atomicBeef ?? wholePayload.beef ?? wholePayload.context
-
-    if (!atomicBEEFSource) {
-      console.log(
-        '[BTMSLookupService] outputAdmittedByTopic: no atomicBEEF/BEEF on payload',
-        JSON.stringify(
-          {
-            mode: payload.mode,
-            outputIndex
-          },
-          null,
-          2
-        )
-      )
-      return
-    }
-
-    let beef: AtomicBEEF | undefined
-
-    if (Array.isArray(atomicBEEFSource)) {
-      beef = atomicBEEFSource.map(x => Number(x)) as AtomicBEEF
-    } else if (atomicBEEFSource instanceof Uint8Array) {
-      beef = Array.from(atomicBEEFSource, b => Number(b)) as AtomicBEEF
-    } else {
-      const ctorName = (atomicBEEFSource as { constructor?: { name?: string } })?.constructor?.name ?? 'unknown'
-      console.log(
-        '[BTMSLookupService] outputAdmittedByTopic: unsupported atomicBEEF/BEEF type',
-        JSON.stringify(
-          {
-            type: typeof atomicBEEFSource,
-            constructor: ctorName
-          },
-          null,
-          2
-        )
-      )
-      return
-    }
+    // Only process BTMS topic
+    if (topic !== 'tm_btms') return
 
     try {
-      // 🔴 IMPORTANT CHANGE: be tolerant of both atomicBEEF and full BEEF
-      let tx: Transaction
-      try {
-        tx = Transaction.fromAtomicBEEF(beef as AtomicBEEF)
-      } catch {
-        tx = Transaction.fromBEEF(beef as BEEF)
-      }
-      // 🔴 END CHANGE
+      // Decode the BTMS PushDrop token
+      const result = PushDrop.decode(lockingScript)
 
-      const txid = tx.id('hex') as TXIDHexString
-
-      const o = tx.outputs[outputIndex]
-      if (!o) {
-        console.log(
-          '[BTMSLookupService] outputAdmittedByTopic: no output at index',
-          JSON.stringify(
-            {
-              txid,
-              outputIndex,
-              outputsLength: tx.outputs.length
-            },
-            null,
-            2
-          )
-        )
+      // BTMS tokens have 4 fields: assetId, amount, op, metadata
+      if (result.fields.length < 4) {
+        console.warn(`[BTMSLookupService] Invalid BTMS token: expected 4 fields, got ${result.fields.length}`)
         return
       }
 
-      // 🔐 Safely normalise lockingScript into Byte[] without assuming a specific SDK shape.
-      let lockingScriptBytes: LockingScriptBytes | undefined
-      const ls: LockingScriptLike = o.lockingScript as LockingScriptLike
+      // Extract assetId from field 0, amount from field 1
+      const assetId = Utils.toUTF8(result.fields[0])
+      const amount = Number(Utils.toUTF8(result.fields[1]))
 
-      if (ls == null) {
-        // no lockingScript present; we'll just store beef + outpoint
-        console.log(
-          '[BTMSLookupService] outputAdmittedByTopic: output has no lockingScript',
-          JSON.stringify(
-            {
-              txid,
-              outputIndex
-            },
-            null,
-            2
-          )
-        )
-      } else if (Array.isArray(ls)) {
-        lockingScriptBytes = ls.map(n => Number(n)) as LockingScriptBytes
-      } else if (ls instanceof Uint8Array) {
-        lockingScriptBytes = Array.from(ls, b => Number(b)) as LockingScriptBytes
-      } else if (typeof Buffer !== 'undefined' && Buffer.isBuffer(ls)) {
-        lockingScriptBytes = Array.from(ls, b => Number(b)) as LockingScriptBytes
-      } else if (typeof ls.toBytes === 'function') {
-        const u8 = ls.toBytes()
-        lockingScriptBytes = Array.from(u8, b => Number(b)) as LockingScriptBytes
-      } else if (typeof ls.toBuffer === 'function') {
-        const buf = ls.toBuffer()
-        lockingScriptBytes = Array.from(buf as Uint8Array | Buffer, b => Number(b)) as LockingScriptBytes
-      } else if (typeof ls.toHex === 'function') {
-        // 👉 Script-like object with toHex()
-        const hex = ls.toHex()
-        if (typeof hex === 'string') {
-          const clean = hex.startsWith('0x') ? hex.slice(2) : hex
-          if (clean.length % 2 === 0) {
-            const bytes: number[] = []
-            for (let i = 0; i < clean.length; i += 2) {
-              const byte = parseInt(clean.slice(i, i + 2), 16)
-              if (!Number.isNaN(byte)) bytes.push(byte)
-            }
-            lockingScriptBytes = bytes as LockingScriptBytes
-          }
-        }
-      } else {
-        const ctorName = (ls as { constructor?: { name?: string } })?.constructor?.name ?? 'unknown'
-        console.log(
-          '[BTMSLookupService] outputAdmittedByTopic: unsupported lockingScript shape',
-          JSON.stringify(
-            {
-              txid,
-              outputIndex,
-              lockingScriptType: typeof ls,
-              lockingScriptCtor: ctorName
-            },
-            null,
-            2
-          )
-        )
-      }
-
-      console.log(
-        '[BTMSLookupService] outputAdmittedByTopic: saving record',
-        JSON.stringify(
-          {
-            txid,
-            outputIndex,
-            hasBeef: Array.isArray(beef),
-            beefLength: Array.isArray(beef) ? beef.length : 0,
-            hasLockingScript: Array.isArray(lockingScriptBytes),
-            lockingScriptLength: lockingScriptBytes ? lockingScriptBytes.length : 0
-          },
-          null,
-          2
-        )
-      )
-
-      // Persist minimal record; assetId/amount/metadata are intentionally omitted
-      await this.storage.saveOnAdmit({
+      // Store the record
+      await this.storage.storeRecord({
         txid,
         outputIndex,
-        beef,
-        lockingScript: lockingScriptBytes
+        assetId,
+        amount
       })
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : `Unknown error: ${String(err)}`
-      console.log(
-        '[BTMSLookupService] outputAdmittedByTopic: error parsing BEEF/atomicBEEF',
-        JSON.stringify(
-          {
-            message,
-            outputIndex,
-            beefLength: Array.isArray(beef) ? beef.length : 0
-          },
-          null,
-          2
-        )
-      )
+    } catch (error) {
+      // If we can't decode the PushDrop, skip silently
+      // The topic manager should have already validated this
+      console.warn(`[BTMSLookupService] Failed to decode PushDrop:`, error)
     }
-  }
-
-  async outputSpent(_payload: OutputSpent): Promise<void> {
-    // no-op for now
-  }
-
-  async outputEvicted(_txid: TXIDHexString, _outputIndex: PositiveIntegerOrZero): Promise<void> {
-    // no-op for now
   }
 
   /**
-   * Lookup handler.
-   *
-   * Contract (from LookupService):
-   *   lookup(question) => Promise<LookupFormula>
-   *   LookupFormula = Array<{
-   *     txid: TXIDHexString
-   *     outputIndex: PositiveIntegerOrZero
-   *     history?: number | ((...) => Promise<boolean>)
-   *     context?: number[]
-   *   }>
-   *
-   * For BTMS:
-   *  - Exact outpoint ({ txid, vout }) returns a single element, with:
-   *      { txid, outputIndex, context?: number[], beef?: AtomicBEEF, lockingScript?: Byte[] }
-   *    (`beef` and `lockingScript` are extra runtime fields; we cast to keep TS happy).
-   *
-   *  - "findAll" / "findByAssetId" return a simple array of { txid, outputIndex }.
-   *
-   *  - "history" (stub) will eventually back:
-   *      GET /overlay/ls_btms/history?identityKey=<active>
-   *    but currently returns [] until BTMSStorage is extended to store
-   *    per-identity event rows.
+   * Handle output spend notification.
+   * Removes the record from storage when the UTXO is spent.
+   */
+  async outputSpent(payload: OutputSpent): Promise<void> {
+    if (payload.mode !== 'none') {
+      throw new Error('Invalid payload mode')
+    }
+
+    const { topic, txid, outputIndex } = payload
+
+    // Only process BTMS topic
+    if (topic !== 'tm_btms') return
+
+    await this.storage.deleteRecord(txid, outputIndex)
+  }
+
+  /**
+   * Handle output eviction.
+   */
+  async outputEvicted(txid: string, outputIndex: number): Promise<void> {
+    await this.storage.deleteRecord(txid, outputIndex)
+  }
+
+  /**
+   * Lookup BTMS tokens.
+   * 
+   * Supported queries:
+   * - { assetId: string } - Find all tokens for an asset
+   * - { outpoint: "txid.outputIndex" } - Find a specific token
+   * - { findAll: true } - Find all tokens (use sparingly)
    */
   async lookup(question: LookupQuestion): Promise<LookupFormula> {
-    // Normalize query shape (accept {service,query:{...}} or flat)
-    const src = question as LooseQuery
-    const innerQuery =
-      src.query && typeof src.query === 'object' && src.query !== null
-        ? (src.query as Record<string, unknown>)
-        : (src as Record<string, unknown>)
-    const q: LooseQuery = innerQuery as LooseQuery
+    const query = question.query as Record<string, unknown> | undefined
 
-    // 1) Exact outpoint (Meter-style): { txid, vout }
-    if (typeof q.txid === 'string' && typeof q.vout === 'number' && Number.isFinite(q.vout)) {
-      const txid = q.txid as string
-      const outputIndex = q.vout as number
-
-      console.log(
-        '[BTMSLookupService] lookup: exact outpoint query',
-        JSON.stringify(
-          {
-            txid,
-            vout: outputIndex
-          },
-          null,
-          2
-        )
-      )
-
-      // Use the dedicated helper so we don't have to scan the whole collection.
-      const match = await this.storage.findByOutpoint(txid, outputIndex)
-
-      if (!match) {
-        console.log(
-          '[BTMSLookupService] lookup: no BTMSRecord found for outpoint',
-          JSON.stringify({ txid, vout: outputIndex }, null, 2)
-        )
-        return []
-      }
-
-      console.log(
-        '[BTMSLookupService] lookup: BTMSRecord match',
-        JSON.stringify(
-          {
-            txid: match.txid,
-            outputIndex: match.outputIndex,
-            hasBeef: Array.isArray(match.beef),
-            beefLength: Array.isArray(match.beef) ? match.beef.length : 0,
-            hasLockingScript: Array.isArray(match.lockingScript),
-            lockingScriptLength: Array.isArray(match.lockingScript) ? match.lockingScript.length : 0
-          },
-          null,
-          2
-        )
-      )
-
-      const entry: ExtendedLookupEntry = {
-        txid: match.txid as TXIDHexString,
-        outputIndex: match.outputIndex as PositiveIntegerOrZero
-      }
-
-      if (Array.isArray(match.beef)) {
-        entry.context = match.beef // standard field
-        entry.beef = match.beef as AtomicBEEF // extra, for convenience
-      }
-
-      if (Array.isArray(match.lockingScript)) {
-        entry.lockingScript = match.lockingScript as LockingScriptBytes
-      }
-
-      return [entry] as LookupFormula
+    if (!query) {
+      throw new Error('Lookup must include a valid query!')
     }
 
-    // 2) Named formula or boolean flag (legacy shapes)
-    const formula: string | undefined =
-      typeof q.formula === 'string' ? (q.formula as string) : q.findAll ? 'findAll' : undefined
-
-    // 2a) NEW: history (by identityKey) — stub implementation
-    if (formula === 'history') {
-      const identityKey = typeof q.identityKey === 'string' ? (q.identityKey as string) : null
-
-      console.log(
-        '[BTMSLookupService] lookup: formula=history (stub)',
-        JSON.stringify(
-          {
-            identityKey,
-            note:
-              'BTMSStorage currently only indexes UTXO-level info. ' +
-              'To implement per-identity history (sends/incoming/internalize/refunds), ' +
-              'extend BTMSStorage to store identityKey + eventKind and query those rows here.'
-          },
-          null,
-          2
-        )
-      )
-
-      // IMPORTANT:
-      // At present this overlay only knows about txid/outputIndex/beef/lockingScript.
-      // There is no identityKey or eventKind indexed here yet, so we **must not**
-      // fabricate results. Returning [] keeps behaviour honest until storage is extended.
-      return []
+    // Query by assetId
+    if (typeof query.assetId === 'string') {
+      const results = await this.storage.findByAssetId(query.assetId)
+      return results.map(r => ({ txid: r.txid, outputIndex: r.outputIndex }))
     }
 
-    if (formula === 'findAll') {
-      console.log('[BTMSLookupService] lookup: formula=findAll')
-      const docs = await this.storage.findAll()
-      return docs.map(
-        (d): LookupEntry => ({
-          txid: d.txid as TXIDHexString,
-          outputIndex: d.outputIndex as PositiveIntegerOrZero
-        })
-      ) as LookupFormula
+    // Query by outpoint
+    if (typeof query.outpoint === 'string') {
+      const [txid, outputIndexStr] = query.outpoint.split('.')
+      const outputIndex = Number(outputIndexStr)
+
+      if (!txid || isNaN(outputIndex)) {
+        throw new Error('Invalid outpoint format. Expected "txid.outputIndex"')
+      }
+
+      const result = await this.storage.findByOutpoint(txid, outputIndex)
+      return result ? [{ txid: result.txid, outputIndex: result.outputIndex }] : []
     }
 
-    if (formula === 'findByAssetId' || typeof q.assetId === 'string') {
-      const assetId: string = String(q.assetId ?? '')
-      console.log('[BTMSLookupService] lookup: formula=findByAssetId', JSON.stringify({ assetId }, null, 2))
-      if (!assetId) return []
-      const docs = await this.storage.findByAssetId(assetId)
-      return docs.map(
-        (d): LookupEntry => ({
-          txid: d.txid as TXIDHexString,
-          outputIndex: d.outputIndex as PositiveIntegerOrZero
-        })
-      ) as LookupFormula
+    // Find all (use sparingly)
+    if (query.findAll === true) {
+      const results = await this.storage.findAll()
+      return results.map(r => ({ txid: r.txid, outputIndex: r.outputIndex }))
     }
 
-    console.log('[BTMSLookupService] lookup: default/unknown query shape', JSON.stringify(q, null, 2))
-
-    // Default: empty array
-    return []
+    throw new Error('Query must include assetId, outpoint, or findAll!')
   }
 }
 
-/** Factory */
-export default (db: Db): BTMSLookupService => {
-  return new BTMSLookupService(new BTMSStorage(db))
-}
+/**
+ * Factory function to create the BTMS Lookup Service.
+ */
+export default (db: Db) => new BTMSLookupService(db)

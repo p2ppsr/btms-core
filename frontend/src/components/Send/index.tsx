@@ -1,6 +1,6 @@
 // React / UI (btms-ui)
 import React, { useState, useMemo } from 'react'
-import { Typography, Button, Dialog, DialogActions, DialogContent, DialogTitle, TextField } from '@mui/material'
+import { Typography, Button, Dialog, DialogActions, DialogContent, DialogTitle, TextField, CircularProgress, Box } from '@mui/material'
 import { toast } from 'react-toastify'
 import useStyles from './send-style'
 
@@ -19,7 +19,7 @@ interface SendProps {
   onReloadNeeded?: () => void
 }
 
-const Send: React.FC<SendProps> = ({ assetId, asset, onReloadNeeded = () => {} }) => {
+const Send: React.FC<SendProps> = ({ assetId, asset, onReloadNeeded = () => { } }) => {
   const classes = useStyles()
 
   const [recipient, setRecipient] = useState('')
@@ -72,9 +72,9 @@ const Send: React.FC<SendProps> = ({ assetId, asset, onReloadNeeded = () => {} }
 
       try {
         onReloadNeeded()
-      } catch {}
+      } catch { }
 
-      toast.success(`You sent ${qty} ${asset.name}!`)
+      toast.success(`Transferred ${qty} ${asset.name} successfully!`)
       setOpen(false)
     } catch (err: any) {
       console.error(err)
@@ -88,41 +88,60 @@ const Send: React.FC<SendProps> = ({ assetId, asset, onReloadNeeded = () => {} }
     <>
       {/* Disable main send button if balance = 0 */}
       <Button onClick={() => setOpen(true)} variant="outlined" color="secondary" disabled={asset.balance === 0}>
-        Send
+        Transfer
       </Button>
 
-      <Dialog open={open} onClose={handleSendCancel} color="primary">
+      <Dialog open={open} onClose={loading ? undefined : handleSendCancel} color="primary">
         <DialogTitle variant="h4" sx={{ fontWeight: 'bold' }}>
-          Send {asset.name}
+          Transfer {asset.name}
         </DialogTitle>
 
         <DialogContent>
-          <Typography variant="h6">Recipient Identity Key:</Typography>
-          <Typography variant="subtitle2">Get this from the person who will receive the token</Typography>
+          {loading && (
+            <Box sx={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              py: 4,
+              gap: 2
+            }}>
+              <CircularProgress color="secondary" size={48} />
+              <Typography variant="body1">Processing transfer...</Typography>
+              <Typography variant="body2" color="text.secondary">Recording on blockchain</Typography>
+            </Box>
+          )}
 
-          <TextField
-            className={classes.form}
-            value={recipient}
-            variant="outlined"
-            fullWidth
-            helperText="Required"
-            onChange={e => setRecipient(e.target.value.replace(/[^0-9a-f]/gi, ''))}
-            color="secondary"
-          />
+          {!loading && (
+            <>
+              <Typography variant="h6">Recipient Identity Key:</Typography>
+              <Typography variant="subtitle2">Get this from the recipient</Typography>
 
-          <Typography variant="h6" className={classes.sub_title}>
-            Quantity:
-          </Typography>
+              <TextField
+                className={classes.form}
+                value={recipient}
+                variant="outlined"
+                fullWidth
+                helperText="Required"
+                onChange={e => setRecipient(e.target.value.replace(/[^0-9a-f]/gi, ''))}
+                color="secondary"
+              />
 
-          <TextField
-            className={classes.form}
-            value={quantity}
-            variant="outlined"
-            color="secondary"
-            fullWidth
-            helperText={asset.balance > 0 ? `Available: ${asset.balance}` : 'You have no tokens'}
-            onChange={e => setQuantity(e.target.value.replace(/\D/g, ''))}
-          />
+              <Typography variant="h6" className={classes.sub_title}>
+                Quantity:
+              </Typography>
+
+              <TextField
+                className={classes.form}
+                value={quantity}
+                variant="outlined"
+                color="secondary"
+                fullWidth
+                helperText={asset.balance > 0 ? `Available: ${asset.balance}` : 'No balance available'}
+                onChange={e => setQuantity(e.target.value.replace(/\D/g, ''))}
+              />
+            </>
+          )}
         </DialogContent>
 
         <DialogActions className={classes.button}>
@@ -130,9 +149,14 @@ const Send: React.FC<SendProps> = ({ assetId, asset, onReloadNeeded = () => {} }
             Cancel
           </Button>
 
-          {/* ONLY ENABLE WHEN VALID */}
-          <Button disabled={!canSend} color="secondary" variant="outlined" onClick={handleSend}>
-            Send Now
+          <Button
+            disabled={!canSend}
+            color="secondary"
+            variant="outlined"
+            onClick={handleSend}
+            startIcon={loading ? <CircularProgress size={16} color="inherit" /> : null}
+          >
+            {loading ? 'Transferring...' : 'Confirm Transfer'}
           </Button>
         </DialogActions>
       </Dialog>

@@ -2,81 +2,62 @@
 //
 // BTMS Basket Helpers
 // --------------------
-// • Today: BTMS uses NORMAL baskets only (never “p “), per BRC-99.
-// • Future: defines a BTMS permission scheme (“p btms …”) but NEVER generated
-//   unless explicitly requested by a wallet that supports it.
+// BTMS uses BRC-99 permissioned baskets with "p btms" prefix.
+// This ensures wallet permission modules can enforce access control.
 //
-// ALWAYS SAFE for production BTMS.
-//
+// Token basket format: "p btms <assetId>"
+// Example: "p btms MyToken123"
 // ---------------------------------------------------------------
 
+/** Permission scheme ID for BTMS (BRC-99 compliant) */
+const BTMS_SCHEME_ID = 'btms'
+
+/** Permissioned basket prefix */
+const P_BASKET_PREFIX = `p ${BTMS_SCHEME_ID}`
+
 /**
- * Generate a standard BTMS basket ID for storing UTXOs
- * belonging to a specific asset.
+ * Generate a permissioned BTMS basket ID for storing token UTXOs.
+ * Uses BRC-99 "p btms" prefix for wallet permission enforcement.
  *
- * VALID (BRC-98 compliant)
- *  - "btms/asset/<assetId>"
+ * Format: "p btms <assetId>"
+ * Example: "p btms MyToken123"
  */
 export function btmsAssetBasket(assetId: string): string {
-  return `btms/asset/${assetId}`
+  return `${P_BASKET_PREFIX} ${assetId}`
 }
 
 /**
  * Generate a counterparty-specific BTMS basket.
+ * Uses BRC-99 "p btms" prefix for wallet permission enforcement.
  *
- * VALID (BRC-98 compliant)
- *  - "btms/counterparty/<identityKey>/<assetId>"
+ * Format: "p btms counterparty/<identityKey>/<assetId>"
  */
 export function btmsCounterpartyBasket(identityKey: string, assetId: string): string {
-  return `btms/counterparty/${identityKey}/${assetId}`
+  return `${P_BASKET_PREFIX} counterparty/${identityKey}/${assetId}`
 }
 
 /**
  * Generate a BTMS offer basket (used for marketplace-style offers).
+ * Uses BRC-99 "p btms" prefix for wallet permission enforcement.
  *
- * VALID (BRC-98)
- *  - "btms/offers/<uuid>"
+ * Format: "p btms offers/<uuid>"
  */
 export function btmsOfferBasket(offerId: string): string {
-  return `btms/offers/${offerId}`
+  return `${P_BASKET_PREFIX} offers/${offerId}`
 }
 
-/* ================================================================
-   FUTURE BRC-99: BTMS PERMISSION SCHEME BASKETS (NOT USED TODAY)
-   --------------------------------------------------------------
-   
-   BRC-99 says:
-   • Basket IDs beginning with "p " are RESERVED.
-   • Wallets MUST reject them unless they implement the scheme.
-   • Format: "p <schemeId> <rest>"
-   • schemeId CANNOT contain spaces.
-
-   We define the future BTMS permission-scheme:
-
-      schemeId = "btms"
-
-   Full form:
-      "p btms <scope>/<counterparty>/<conditions>"
-
-   NOTE:
-   THESE MUST NOT BE USED UNTIL the wallet supports them.
-   ================================================================ */
-
 /**
- * Create a **future** BTMS permission-scheme basket ID.
+ * Create a custom BTMS permission-scheme basket ID.
  *
- * This should only be used by advanced MND integrations
- * once the Metanet client implements P-schemes.
- *
- * Example:
- *  p btms with/aliceKey/dailyLimit10
+ * Format: "p btms <rest>"
+ * Example: "p btms with/aliceKey/dailyLimit10"
  */
-export function btmsFuturePermissionBasket(rest: string): string {
+export function btmsPermissionBasket(rest: string): string {
   // enforce BRC-99 rules:
   if (rest.includes('\n')) {
     throw new Error('Invalid BTMS P-basket: cannot contain newline')
   }
-  return `p btms ${rest}`
+  return `${P_BASKET_PREFIX} ${rest}`
 }
 
 /**
@@ -89,8 +70,8 @@ export function isPschemeBasket(basket: string): boolean {
 /**
  * Parse a P-scheme basket into { schemeId, rest }
  *
- * Only for future use by wallets. BTMS should NOT parse these
- * during normal operation because BTMS does not generate "p " baskets today.
+ * Useful for wallet permission modules to extract the scheme ID
+ * and remaining basket path from a permissioned basket.
  */
 export function parsePschemeBasket(basket: string): {
   schemeId: string

@@ -1,53 +1,20 @@
 import { AdmittanceInstructions, TopicManager } from '@bsv/overlay'
-import { BEEF, Byte, PositiveIntegerOrZero, Transaction } from '@bsv/sdk'
-import docs from './BTMSTopicDocs.md'
+import { Transaction, PushDrop } from '@bsv/sdk'
+import docs from './BTMSTopicDocs.md.js'
 
 /**
- * BTMS Topic Manager (pushdrop-free).
- *
- * For the **original BTMS demo flow**, we do *not* try to parse or
- * validate the token structure here. We simply:
- *
- *  - Parse the BEEF into a Transaction
- *  - Admit all outputs (or as many as we can safely handle)
- *  - Let higher-level code / the wallet decide what is “really” BTMS
- *
- * This keeps the overlay running reliably and avoids any dependency
- * on the separate `pushdrop` package or BRC-48 conventions.
+ * BTMS Topic Manager
+ * 
+ * Validates and admits BTMS PushDrop token outputs.
+ * Only outputs that contain valid BTMS tokens are admitted.
+ * 
+ * BTMS Token Structure (4 fields):
+ *   0: assetId (string)
+ *   1: amount (string, numeric)
+ *   2: op ("ISSUE" | "TRANSFER")
+ *   3: metadata (JSON string)
  */
 export default class BTMSTopicManager implements TopicManager {
-  /**
-   * Decide which outputs from the submitted tx should be admitted to this topic.
-   * For the original BTMS behavior, we simply admit all outputs that parse OK.
-   */
-  async identifyAdmissibleOutputs(beef: BEEF, previousCoins: PositiveIntegerOrZero[]): Promise<AdmittanceInstructions> {
-    const outputsToAdmit: PositiveIntegerOrZero[] = []
-
-    try {
-      const tx = Transaction.fromBEEF(beef as Byte[])
-
-      // Original BTMS flow did not filter by protocol.
-      // To avoid fragile assumptions (and external libs), we admit all outputs.
-      for (const [i] of tx.outputs.entries()) {
-        outputsToAdmit.push(i as PositiveIntegerOrZero)
-      }
-
-      if (outputsToAdmit.length === 0) {
-        // Stay permissive like Meter: warn but don't throw.
-        console.warn('BTMSTopicManager: no outputs admitted for this tx')
-      }
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error)
-      const beefStr = JSON.stringify(beef, null, 2)
-      throw new Error(`BTMSTopicManager: error identifying admissible outputs: ${message} beef:${beefStr}}`)
-    }
-
-    return {
-      outputsToAdmit: outputsToAdmit as number[],
-      coinsToRetain: previousCoins as number[]
-    }
-  }
-
   async getDocumentation(): Promise<string> {
     return docs
   }
@@ -61,7 +28,90 @@ export default class BTMSTopicManager implements TopicManager {
   }> {
     return {
       name: 'BTMS Topic Manager',
-      shortDescription: 'Admits BTMS transaction outputs (no PushDrop).'
+      shortDescription: 'Manages BTMS (Basic Token Management System) token outputs.'
+    }
+  }
+
+  /**
+   * Identify which outputs from the transaction should be admitted to this topic.
+   * Only admits outputs that are valid BTMS PushDrop tokens.
+   */
+  async identifyAdmissibleOutputs(
+    beef: number[],
+    previousCoins: number[]
+  ): Promise<AdmittanceInstructions> {
+    const outputsToAdmit: number[] = []
+
+    try {
+      const tx = Transaction.fromBEEF(beef)
+
+      // Check each output for valid BTMS token structure
+      for (const [i, output] of tx.outputs.entries()) {
+        try {
+          // Attempt to decode as PushDrop
+          const result = PushDrop.decode(output.lockingScript)
+
+          // BTMS tokens must have at least 4 fields
+          if (result.fields.length < 4) {
+            continue
+          }
+
+          // Validate field structure
+          const assetId = new TextDecoder().decode(new Uint8Array(result.fields[0]))
+          const amountStr = new TextDecoder().decode(new Uint8Array(result.fields[1]))
+          const op = new TextDecoder().decode(new Uint8Array(result.fields[2]))
+          const metadata = new TextDecoder().decode(new Uint8Array(result.fields[3]))
+
+          // Validate assetId is non-empty
+          if (!assetId || assetId.trim().length === 0) {
+            continue
+          }
+
+          // Validate amount is a positive number
+          const amount = Number(amountStr)
+          if (!Number.isFinite(amount) || amount <= 0) {
+            continue
+          }
+
+          // Validate op is ISSUE or TRANSFER
+          if (op !== 'ISSUE' && op !== 'TRANSFER') {
+            continue
+          }
+
+          // Validate metadata is valid JSON
+          try {
+            JSON.parse(metadata)
+          } catch {
+            continue
+          }
+
+          // All validations passed - admit this output
+          outputsToAdmit.push(i)
+        } catch {
+          // Not a valid PushDrop, skip this output
+          continue
+        }
+      }
+
+      if (outputsToAdmit.length === 0) {
+        // No valid BTMS tokens found
+        return {
+          coinsToRetain: [],
+          outputsToAdmit: []
+        }
+      }
+
+      return {
+        coinsToRetain: previousCoins,
+        outputsToAdmit
+      }
+    } catch (error) {
+      // Transaction parsing failed
+      console.error('[BTMSTopicManager] Failed to parse transaction:', error)
+      return {
+        coinsToRetain: [],
+        outputsToAdmit: []
+      }
     }
   }
 }

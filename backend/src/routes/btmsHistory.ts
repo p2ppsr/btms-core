@@ -1,67 +1,26 @@
 // backend/src/routes/btmsHistory.ts
 import { Router, Request, Response } from 'express'
 import { Db } from 'mongodb'
-import { BTMSStorage, BTMSRecord } from '../lookup-services/BTMSStorage'
+import { BTMSStorage } from '../lookup-services/BTMSStorage.js'
+import { UTXOReference } from '../types.js'
 
 /**
  * Shape we return to the frontend.
- * This is a stable, API-facing DTO that hides any Mongo-specific details.
  */
 export interface BTMSHistoryItemDTO {
   txid: string
   outputIndex: number
-
-  assetId?: string
-  amount?: number
-  metadata?: unknown
-
-  createdAt?: string
-
-  // raw debug fields, if present
-  hasBeef?: boolean
-  beefLength?: number
-  hasLockingScript?: boolean
-  lockingScriptLength?: number
 }
 
 /**
  * Server-side collector: gather BTMS overlay "history" for the caller.
- *
- * NOTE (2025-11-20):
- *   BTMSRecord currently does NOT store identityKey or event-type
- *   (send / receive / internalize / refund). So this function
- *   simply streams back EVERYTHING we have in BTMSRecords.
- *
- *   Once BTMSRecord includes identityKey + eventType, this is the
- *   ONLY function you should touch to add filtering/aggregation.
+ * Returns all BTMS UTXOs currently indexed.
  */
-export async function collectBtmsHistory(storage: BTMSStorage, identityKey?: string): Promise<BTMSHistoryItemDTO[]> {
-  // For now, ignore identityKey; we don't have it on BTMSRecord yet.
-  // The param is kept so we can start filtering as soon as the schema
-  // is enriched.
-  void identityKey
-
-  const docs: BTMSRecord[] = await storage.findAll()
-
+export async function collectBtmsHistory(storage: BTMSStorage, _identityKey?: string): Promise<BTMSHistoryItemDTO[]> {
+  const docs: UTXOReference[] = await storage.findAll()
   return docs.map(d => ({
     txid: d.txid,
-    outputIndex: d.outputIndex,
-
-    assetId: d.assetId,
-    amount: d.amount as number | undefined,
-    metadata: d.metadata,
-
-    createdAt:
-      typeof d.createdAt === 'string'
-        ? d.createdAt
-        : d.createdAt instanceof Date
-          ? d.createdAt.toISOString()
-          : undefined,
-
-    hasBeef: Array.isArray(d.beef),
-    beefLength: Array.isArray(d.beef) ? d.beef.length : undefined,
-    hasLockingScript: Array.isArray(d.lockingScript),
-    lockingScriptLength: Array.isArray(d.lockingScript) ? d.lockingScript.length : undefined
+    outputIndex: d.outputIndex
   }))
 }
 

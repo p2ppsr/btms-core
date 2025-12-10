@@ -79,31 +79,27 @@ const BTMS_DEBUG = false
 /** Source tag for HMR detection */
 const BTMS_SOURCE_TAG = 'frontend/src/btms/index.ts'
 
-// For testing
-// Name of the permission scheme / protocol (BRC-98/99)
-const PERMISSION_PROTOCOL = getNormalisedLabel('btmsToken')
-const ASSET_ID_TERM = getNormalisedLabel('assetId')
+// ---------------------------------------------------------------------------
+// BTMS Protocol Constants
+// ---------------------------------------------------------------------------
+// BRC-99: Baskets prefixed with "p " are permissioned and require wallet
+// permission module support. The scheme ID is "btms".
+//
+// Token basket format: "p btms <assetId>"
+// Example: "p btms MyToken123"
+// ---------------------------------------------------------------------------
 
-const PROTOCOL = PERMISSION_PROTOCOL
+/** Permission scheme ID for BTMS (BRC-99 compliant) */
+const BTMS_SCHEME_ID = 'btms'
+
+/** Permissioned basket prefix - requires wallet permission module */
+const P_BASKET_PREFIX = `p ${BTMS_SCHEME_ID}`
+
+/** Protocol ID for wallet operations - uses "p btms" for permission module integration */
+const PROTOCOL_ID: WalletProtocol = [0, `p ${BTMS_SCHEME_ID}`]
+
+/** Default key ID for protocol operations */
 const PROTOCOL_KEY_ID = '1'
-
-const PROTOCOL_ID: WalletProtocol = [0, PROTOCOL]
-
-// Basket prefix = protocol / permission scheme name
-const BASKET_PREFIX = PROTOCOL
-
-// Initial basket when BTMS starts
-const INIT_BASKET = PROTOCOL
-
-// Version prefix for asset namespace (e.g., v1, v2, v3)
-const ASSET_ID_VERSION_PREFIX = 'v'
-const ASSET_ID_VERSION = `${ASSET_ID_VERSION_PREFIX}1` // "v1"
-
-// btmstoken v1
-const TOKEN_BASKET_PREFIX = `${PROTOCOL} ${ASSET_ID_VERSION}`
-
-// btmstoken v1 assetid=
-const ASSET_PROTOCOL = `${TOKEN_BASKET_PREFIX} ${ASSET_ID_TERM}=`
 
 function btmsDebug(label: string, ...rest: any[]) {
   if (!BTMS_DEBUG) return
@@ -150,18 +146,9 @@ export class BTMSToken {
     amount: number,
     metadata: string,
     op: 'ISSUE' | 'TRANSFER' = 'ISSUE',
-    signature = '',
     forSelf = true
   ): Promise<LockingScript> {
     const callId = makeDebugCallId('BTMSToken.lock')
-    btmsDebug(`${callId}: START`, {
-      assetId,
-      amount,
-      op,
-      forSelf,
-      metadataLength: metadata.length,
-      signaturePresent: signature.length > 0
-    })
 
     // -----------------------------------------------------
     // 1. STRICT 5-FIELD SCHEMA
@@ -170,31 +157,14 @@ export class BTMSToken {
       Utils.toArray(assetId, 'utf8'),
       Utils.toArray(String(amount), 'utf8'),
       Utils.toArray(op, 'utf8'),
-      Utils.toArray(metadata, 'utf8'),
-      Utils.toArray(signature, 'utf8') // strict 5th field
+      Utils.toArray(metadata, 'utf8')
     ]
-
-    btmsDebug(`${callId}: fields (string form)`, {
-      field0: assetId,
-      field1: String(amount),
-      field2: op,
-      field3: metadata,
-      field4SignatureLength: signature.length
-    })
 
     // -----------------------------------------------------
     // 2. Build PushDrop locking script
     // -----------------------------------------------------
     const pushdrop = new PushDrop(this.walletClient)
-
     const lockScript = await pushdrop.lock(fields, protocolID, keyID, counterparty, forSelf)
-
-    const lockingScriptHex = lockScript.toHex()
-    btmsDebug(`${callId}: lockingScript hex`, {
-      lockingScriptHexPreview: lockingScriptHex.slice(0, 80) + '...'
-    })
-
-    btmsDebug(`${callId}: END — returning lockingScript`)
     return lockScript
   }
 
@@ -255,7 +225,7 @@ export class BTMS {
   // --------------------------------------------------
   // NEW-WORLD BTMS v2 state
   // --------------------------------------------------
-  basketPrefix: BasketStringUnder300Bytes = BASKET_PREFIX
+  basketPrefix: BasketStringUnder300Bytes = P_BASKET_PREFIX
 
   // ---- Incoming Payment Cache Controls ----
   private _lastIncomingResult: IncomingPayment[] | null = null
@@ -427,7 +397,7 @@ export class BTMS {
     tokensMessageBox = 'tokens-box',
     protocolID: WalletProtocol = PROTOCOL_ID,
     protocolKeyID: KeyIDStringUnder800Bytes = PROTOCOL_KEY_ID,
-    basket: BasketStringUnder300Bytes = INIT_BASKET,
+    basket: BasketStringUnder300Bytes = P_BASKET_PREFIX,
     tokensTopic = 'tokens',
     satoshis: SatoshiValue = 1 as SatoshiValue,
     privateKey?: string,
@@ -642,7 +612,7 @@ export class BTMS {
     // ---------------------------------------------------------
     // 0) Discover UTXOs for this assetId via its basket
     // ---------------------------------------------------------
-    const basket = `${TOKEN_BASKET_PREFIX} ${assetId}`
+    const basket = `${P_BASKET_PREFIX} ${assetId}`
 
     const args: ListOutputsArgs = {
       basket,
@@ -793,19 +763,14 @@ export class BTMS {
     btmsDebug(`${callId}: START`, { amount, name, assetId, metadata })
 
     try {
-      const basket: BasketStringUnder300Bytes = `${this.basketPrefix} ${ASSET_ID_VERSION} ${assetId}`
-
-      btmsDebug(`${callId}: using per-token basket`, { basket })
+      const basket: BasketStringUnder300Bytes = `${this.basketPrefix} ${assetId}`
 
       // unified identity lookup
       const { publicKey: myIdentityKey } = await this.walletClient.getPublicKey({
         identityKey: true
       })
 
-      btmsDebug(`${callId}: issuer identity`, { myIdentityKey })
-
       const keyID = this.getRandomKeyID()
-      btmsDebug(`${callId}: mint keyID`, { keyID })
 
       /**
        * ------------------------------------------------------------------
@@ -844,8 +809,7 @@ export class BTMS {
         assetId,
         amount,
         metadataJson,
-        'ISSUE',
-        '' // signature field required but empty for v1/v2
+        'ISSUE'
       )
 
       const lockingScriptHex = lockScript.toHex()
@@ -931,7 +895,7 @@ export class BTMS {
       /* ------------------------------------------------------------------ */
       /* 2) Fetch all spendable UTXOs for this asset                        */
       /* ------------------------------------------------------------------ */
-      const tokenBasket = `${this.basketPrefix} ${ASSET_ID_VERSION} ${assetId}` as BasketStringUnder300Bytes
+      const tokenBasket = `${this.basketPrefix} ${assetId}` as BasketStringUnder300Bytes
 
       const beefListArgs: ListOutputsArgs = {
         basket: tokenBasket,
@@ -1010,8 +974,8 @@ export class BTMS {
         const op = utf8Fields[2]
         const metadataJson = utf8Fields[3]
 
-        // Validate token
-        if (op !== 'ISSUE') continue
+        // Validate token - accept both ISSUE and TRANSFER ops
+        if (op !== 'ISSUE' && op !== 'TRANSFER') continue
         if (tokenName.toLowerCase() !== assetId.toLowerCase()) continue
 
         const tokenAmount = Number(amtStr)
@@ -1086,15 +1050,17 @@ export class BTMS {
       const template = new BTMSToken(walletClient)
       const outputs: CreateActionOutput[] = []
 
-      // Recipient output
+      // Recipient output - locked to recipient's key (or self if sending to self)
       const recipientKeyID = this.getRandomKeyID()
+      const isSendingToSelf = myIdentityKey === recipient
       const recipientLockScript = await template.lock(
         PROTOCOL_ID,
         PROTOCOL_KEY_ID,
-        'self',
+        isSendingToSelf ? 'self' : recipient,  // Lock to recipient's identity key
         assetId,
         sendAmount,
-        metadataJson
+        metadataJson,
+        'TRANSFER'  // This is a transfer, not an issue
       )
       const recipientScriptHex = recipientLockScript.toHex() as HexString
 
@@ -1108,10 +1074,12 @@ export class BTMS {
         satoshis: this.satoshis,
         lockingScript: recipientScriptHex,
         outputDescription: `Send ${sendAmount} ${tokenDisplayName}`,
-        tags: [myIdentityKey === recipient ? 'owner self' : `owner ${recipient}`] as OutputTagStringUnder300Bytes[],
-        basket: tokenBasket,
+        tags: [isSendingToSelf ? 'owner self' : `owner ${recipient}`] as OutputTagStringUnder300Bytes[],
+        // Only put in basket if sending to self; otherwise recipient will internalize via message
+        ...(isSendingToSelf ? { basket: tokenBasket } : {}),
         customInstructions: JSON.stringify({
           sender: myIdentityKey,
+          recipient,
           keyID: recipientKeyID,
           amount: sendAmount,
           assetId,
@@ -1131,7 +1099,8 @@ export class BTMS {
           'self',
           assetId,
           tokenChangeAmount,
-          metadataJson
+          metadataJson,
+          'TRANSFER'  // Change from a transfer is also a transfer op
         )
         const changeScriptHex = changeLockScript.toHex() as HexString
 
@@ -1292,7 +1261,7 @@ export class BTMS {
 
     /***************************************************************************
      * STEP A — Discover assets via listActions with 'btms' label
-     * Extract asset IDs from output baskets (pattern: "btmstoken v1 <assetId>")
+     * Extract asset IDs from output baskets (pattern: "p btms <assetId>")
      ***************************************************************************/
     try {
       const actionsResult: ListActionsResult = await this.walletClient.listActions({
@@ -1302,11 +1271,11 @@ export class BTMS {
       })
 
       // Extract asset IDs from output baskets
-      const basketPrefix = `${this.basketPrefix} ${ASSET_ID_VERSION} `
+      const basketPrefix = `${this.basketPrefix} `
       for (const action of actionsResult.actions) {
         for (const output of action.outputs ?? []) {
           if (output.basket?.startsWith(basketPrefix)) {
-            // Parse assetId from basket name: "btmstoken v1 <assetId>"
+            // Parse assetId from basket name: "p btms <assetId>"
             const assetId = output.basket.substring(basketPrefix.length)
             if (assetId) {
               assetIds.add(assetId)
@@ -1376,7 +1345,12 @@ export class BTMS {
       assets[id].balance = bal
     }
 
-    const finalList = Object.values(assets)
+    /***************************************************************************
+     * STEP E — Filter out zero-balance assets (unless they have pending incoming)
+     ***************************************************************************/
+    const finalList = Object.values(assets).filter(
+      asset => asset.balance > 0 || asset.hasPendingIncoming
+    )
 
     return finalList
   }
@@ -1566,9 +1540,10 @@ export class BTMS {
       metadataJson
     })
 
-    if (opField !== 'ISSUE') {
-      btmsDebug(`${callId}: ERROR opField != ISSUE`, { opField })
-      throw new Error('acceptIncomingPayment: unsupported op (must be ISSUE)')
+    // Accept both ISSUE (newly minted tokens sent directly) and TRANSFER (tokens sent from another user)
+    if (opField !== 'ISSUE' && opField !== 'TRANSFER') {
+      btmsDebug(`${callId}: ERROR invalid opField`, { opField })
+      throw new Error(`acceptIncomingPayment: unsupported op "${opField}" (must be ISSUE or TRANSFER)`)
     }
 
     // Validate assetId from caller (UI → BTMS)
@@ -1732,7 +1707,7 @@ export class BTMS {
     // ---------------------------------------------------------------------------
     // 8) INTERNALIZE — Insert token into wallet basket
     // ---------------------------------------------------------------------------
-    const basketName = `btmstoken v1 ${canonicalAssetId}` as BasketStringUnder300Bytes
+    const basketName = `${P_BASKET_PREFIX} ${canonicalAssetId}` as BasketStringUnder300Bytes
 
     const insertArgs: InternalizeActionArgs = {
       tx: beef,
@@ -1771,11 +1746,11 @@ export class BTMS {
     // 9) TRACE — inspect wallet outputs inside this basket (debug only)
     // ---------------------------------------------------------------------------
     try {
-      const basketName = `btmstoken v1 ${canonicalAssetId}`
-      btmsDebug(`${callId}: listOutputs for basket`, { basketName })
+      const traceBasketName = `${P_BASKET_PREFIX} ${canonicalAssetId}`
+      btmsDebug(`${callId}: listOutputs for basket`, { basketName: traceBasketName })
 
       const outputs = await this.walletClient.listOutputs({
-        basket: basketName as BasketStringUnder300Bytes,
+        basket: traceBasketName as BasketStringUnder300Bytes,
         include: 'locking scripts',
         includeTags: true,
         includeLabels: true,
@@ -1784,7 +1759,7 @@ export class BTMS {
       })
 
       btmsDebug(`${callId}: listOutputs result`, {
-        basketName,
+        basketName: traceBasketName,
         total: outputs.totalOutputs,
         outputs: outputs.outputs.map(o => ({
           outpoint: o.outpoint,
@@ -2268,7 +2243,7 @@ export { walletClient }
  * Normalize wallet-provided labels.
  *
  * Wallet always lowercases labels internally, but developers often forget
- * and compare against mixed-case patterns (e.g. "btmsToken v1 assetId=foo_v1").
+ * and compare against mixed-case patterns (e.g. "p btms MyToken").
  * This function guarantees consistent matching.
  *
  * @param label original label from WalletOutput.labels

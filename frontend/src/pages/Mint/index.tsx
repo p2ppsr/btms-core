@@ -1,6 +1,6 @@
 // frontend/src/pages/Mint/index.tsx
 import React, { useState, useRef } from 'react'
-import { Container, Typography, Grid, Button, TextField, Paper, IconButton } from '@mui/material'
+import { Container, Typography, Grid, Button, TextField, Paper, IconButton, CircularProgress, Backdrop } from '@mui/material'
 import ArrowBackIosNewIcon from '@mui/icons-material/ArrowBackIosNew'
 import AddAPhotoIcon from '@mui/icons-material/AddAPhoto'
 import { Link } from 'react-router-dom'
@@ -87,7 +87,7 @@ const Mint: React.FC<MintProps> = ({ history }) => {
 
       console.log(`[${traceId}] btms.issue(...) returned`, res)
 
-      toast.success(`You minted ${quantity} ${name}!`)
+      toast.success(`Issued ${quantity} ${name} successfully!`)
       history.push('/')
     } catch (err: any) {
       console.error('[mint] error during mint', err)
@@ -99,7 +99,22 @@ const Mint: React.FC<MintProps> = ({ history }) => {
   }
 
   return (
-    <div>
+    <div style={{ position: 'relative' }}>
+      {/* Full-screen loading overlay */}
+      <Backdrop
+        sx={{
+          color: '#fff',
+          zIndex: (theme) => theme.zIndex.drawer + 1,
+          flexDirection: 'column',
+          gap: 2
+        }}
+        open={loading}
+      >
+        <CircularProgress color="inherit" size={48} />
+        <Typography variant="h6">Issuing asset on blockchain...</Typography>
+        <Typography variant="body2">This may take a moment</Typography>
+      </Backdrop>
+
       <Container
         sx={{
           display: 'grid',
@@ -109,7 +124,7 @@ const Mint: React.FC<MintProps> = ({ history }) => {
         <Grid container>
           <Grid item className={classes.button}>
             <Button component={Link} to="/" color="secondary">
-              <ArrowBackIosNewIcon className={classes.back_icon} /> My Tokens
+              <ArrowBackIosNewIcon className={classes.back_icon} /> My Assets
             </Button>
           </Grid>
         </Grid>
@@ -124,7 +139,7 @@ const Mint: React.FC<MintProps> = ({ history }) => {
           <Grid container>
             <Grid item className={classes.title}>
               <Typography variant="h4" sx={{ fontWeight: 'bold' }}>
-                Mint a Token
+                Issue New Asset
               </Typography>
             </Grid>
 
@@ -133,12 +148,12 @@ const Mint: React.FC<MintProps> = ({ history }) => {
               <Grid item container direction="column" className={classes.form}>
                 <Grid item>
                   <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
-                    Token Name
+                    Asset Name
                   </Typography>
                 </Grid>
                 <Grid item>
                   <TextField
-                    placeholder="Give your token an original name"
+                    placeholder="e.g. Gold, USD, Real Estate Fund"
                     variant="standard"
                     color="secondary"
                     multiline
@@ -184,11 +199,11 @@ const Mint: React.FC<MintProps> = ({ history }) => {
               <Grid item container direction="column" className={classes.form}>
                 <Grid item>
                   <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
-                    Number of Tokens
+                    Quantity
                   </Typography>
                 </Grid>
                 <Grid item>
-                  <Typography variant="body2">This is your token&apos;s max supply.</Typography>
+                  <Typography variant="body2">Total units to issue (e.g. ounces, dollars, shares)</Typography>
                 </Grid>
                 <Grid item>
                   <TextField
@@ -207,12 +222,12 @@ const Mint: React.FC<MintProps> = ({ history }) => {
               <Grid item container direction="column" className={classes.form}>
                 <Grid item>
                   <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
-                    Token Description
+                    Asset Description
                   </Typography>
                 </Grid>
                 <Grid item>
                   <TextField
-                    placeholder="Give your token a fitting description"
+                    placeholder="Describe what this asset represents"
                     multiline
                     variant="standard"
                     color="secondary"
@@ -236,13 +251,13 @@ const Mint: React.FC<MintProps> = ({ history }) => {
               <Paper elevation={8}>
                 <Grid container direction="column" sx={{ padding: '2.5em' }} rowGap="0.5em">
                   <Grid item>
-                    <Typography sx={{ wordBreak: 'break-word' }}>Token Name: {name}</Typography>
+                    <Typography sx={{ wordBreak: 'break-word' }}>Asset: {name}</Typography>
                   </Grid>
                   <Grid item>
-                    <Typography sx={{ wordBreak: 'break-word' }}>Token Description: {description}</Typography>
+                    <Typography sx={{ wordBreak: 'break-word' }}>Description: {description}</Typography>
                   </Grid>
                   <Grid item>
-                    <Typography>Max Supply: {quantity}</Typography>
+                    <Typography>Quantity: {quantity}</Typography>
                   </Grid>
                 </Grid>
               </Paper>
@@ -252,8 +267,14 @@ const Mint: React.FC<MintProps> = ({ history }) => {
           {/* Create button */}
           <Grid container direction="column" className={classes.form}>
             <Grid item sx={{ textAlign: 'right' }} className={classes.button}>
-              <Button variant="outlined" color="secondary" onClick={mint} disabled={loading}>
-                Create
+              <Button
+                variant="outlined"
+                color="secondary"
+                onClick={mint}
+                disabled={loading}
+                startIcon={loading ? <CircularProgress size={16} color="inherit" /> : null}
+              >
+                {loading ? 'Issuing...' : 'Issue Asset'}
               </Button>
             </Grid>
           </Grid>
